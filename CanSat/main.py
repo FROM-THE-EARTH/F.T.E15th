@@ -29,20 +29,23 @@ TARGET_ALTITUDE = 20
 DATA_SAMPLING_RATE = 0.00001
 ALTITUDE_CONST1 = 30
 ALTITUDE_CONST2 = 5
-SERVO_PIN = 12
+SERVO_PIN = 14
 LED1 = 16
 LED2 = 20
 LED3 = 21
 HIGH = 1
 LOW = 0
-M1A = 13
-M1B = 19
-M4A = 6
-M4B = 5
+PWMA=18
+AIN1=8
+AIN2=25
+PWMB=19
+BIN1=9
+BIN2=11
+
 ROTATION_DIFF = 80
 MOTOR_COFFICIENT = 0.5
-TRIG = 22                           
-ECHO = 27                           
+TRIG = 23                     
+ECHO = 24                           
 SPEED_OF_SOUND = 34767  #音速（気温27℃）
 OBJECT_DISTANCE = 10 # if Object is in 10 meter,Rover stuck 
 
@@ -493,26 +496,23 @@ def setData_thread():
             writer.writerow([currentMilliTime(), round(phase,1), acc[0], acc[1], acc[2], gyro[0], gyro[1], gyro[2], mag[1], mag[1], mag[2], lat, lng, alt, distance, object_distance, azimuth, angle, direction, fall])
         time.sleep(DATA_SAMPLING_RATE)
 
-
 def moveMotor_thread():
     GPIO.setmode(GPIO.BCM)
 
     pi.wiringPiSetupGpio()
-    GPIO.setup(M1A, GPIO.OUT)
-    GPIO.setup(M1B, GPIO.OUT)
-    GPIO.setup(M4A, GPIO.OUT)
-    GPIO.setup(M4B, GPIO.OUT)
+    GPIO.setup(PWMA, GPIO.OUT)
+    GPIO.setup(AIN1, GPIO.OUT)
+    GPIO.setup(AIN2, GPIO.OUT)
+    GPIO.setup(PWMB, GPIO.OUT)
+    GPIO.setup(BIN1, GPIO.OUT)
+    GPIO.setup(BIN2, GPIO.OUT)
 
-    M1A_pwm = GPIO.PWM(M1A, frequency)
-    M1B_pwm = GPIO.PWM(M1B, frequency)
-    M4A_pwm = GPIO.PWM(M4A, frequency)
-    M4B_pwm = GPIO.PWM(M4B, frequency)
+    M_pwmA = GPIO.PWM(PWMA, frequency)
+    M_pwmB = GPIO.PWM(PWMB, frequency)
 
-    M1A_pwm.start(0) # right tire pwm
-    M1B_pwm.start(0)
-    M4A_pwm.start(0) 
-    M4B_pwm.start(0) # left tire pwm
-
+    M_pwmA.start(0) # right tire pwm
+    M_pwmB.start(0)
+    
     while True:
         if direction == 360.0:  # stop
             M1A_pwm.ChangeDutyCycle(0)
