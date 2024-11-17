@@ -71,7 +71,7 @@ gps_detect = 0
 cone_direction = 0
 cone_probability = 0
 restTime = 0.0
-diff_rot = 0.4
+diff_rot = 0
 object_distance = 0.0
 upside_down_Flag = 0 # judge the upside down by acc(bmx)
 stuck_uss_Flag=0    # judge the stuck by ultrasonic sensor
@@ -510,45 +510,66 @@ def moveMotor_thread():
     M_pwmA = GPIO.PWM(PWMA, frequency)
     M_pwmB = GPIO.PWM(PWMB, frequency)
 
-    M_pwmA.start(0) # right tire pwm
-    M_pwmB.start(0)
+    M_pwmA.start(100) # right tire pwm
+    M_pwmB.start(100)
+
     
     while True:
         if direction == 360.0:  # stop
-            M1A_pwm.ChangeDutyCycle(0)
-            M1B_pwm.ChangeDutyCycle(0)
-            M4A_pwm.ChangeDutyCycle(0)
-            M4B_pwm.ChangeDutyCycle(0)
+            M_pwmA.ChangeDutyCycle(0)
+            M_pwmB.ChangeDutyCycle(0)
+            GPIO.outout(AIN1,LOW)
+            GPIO.output(AIN2,LOW)
+            GPIO.output(BIN1,LOW)
+            GPIO.output(BIN2,LOW) 
+
         elif direction == 500.0:  # left 
-            M1A_pwm.ChangeDutyCycle(100)
-            M1B_pwm.ChangeDutyCycle(0)
-            M4A_pwm.ChangeDutyCycle(0)
-            M4B_pwm.ChangeDutyCycle(0)
+            M_pwmA.ChangeDutyCycle(0)
+            M_pwmB.ChangeDutyCycle(100)
+            GPIO.outout(AIN1,LOW)
+            GPIO.output(AIN2,LOW)
+            GPIO.output(BIN1,HIGH)
+            GPIO.output(BIN2,LOW) 
+
         elif direction == 600.0:  # right 
-            M1A_pwm.ChangeDutyCycle(0)
-            M1B_pwm.ChangeDutyCycle(0)
-            M4A_pwm.ChangeDutyCycle(0)
-            M4B_pwm.ChangeDutyCycle(100)
+            M_pwmA.ChangeDutyCycle(100)
+            M_pwmB.ChangeDutyCycle(0)
+            GPIO.outout(AIN1,HIGH)
+            GPIO.output(AIN2,LOW)
+            GPIO.output(BIN1,LOW)
+            GPIO.output(BIN2,LOW) 
+
         elif direction == -360.0:  #forward
-            M1A_pwm.ChangeDutyCycle(100)
-            M1B_pwm.ChangeDutyCycle(0)
-            M4A_pwm.ChangeDutyCycle(0)
-            M4B_pwm.ChangeDutyCycle(100 * diff_rot)
+            M_pwmA.ChangeDutyCycle(100)
+            M_pwmB.ChangeDutyCycle(100)
+            GPIO.outout(AIN1,HIGH)
+            GPIO.output(AIN2,LOW)
+            GPIO.output(BIN1,HIGH)
+            GPIO.output(BIN2,LOW) 
+
         elif direction == -400.0:  # rotate  left
-            M1A_pwm.ChangeDutyCycle(100)
-            M1B_pwm.ChangeDutyCycle(0)
-            M4A_pwm.ChangeDutyCycle(0)
-            M4B_pwm.ChangeDutyCycle(30 * diff_rot) 
+            M_pwmA.ChangeDutyCycle(30)
+            M_pwmB.ChangeDutyCycle(100)
+            GPIO.outout(AIN1,HIGH)
+            GPIO.output(AIN2,LOW)
+            GPIO.output(BIN1,HIGH)
+            GPIO.output(BIN2,LOW)  
+            
         elif direction > 0.0 and direction <= 180.0:  # turn left
-            M1A_pwm.ChangeDutyCycle(100)
-            M1B_pwm.ChangeDutyCycle(0)
-            M4A_pwm.ChangeDutyCycle(0)
-            M4B_pwm.ChangeDutyCycle(20 * diff_rot)
+            M_pwmA.ChangeDutyCycle(20)
+            M_pwmB.ChangeDutyCycle(100)
+            GPIO.outout(AIN1,HIGH)
+            GPIO.output(AIN2,LOW)
+            GPIO.output(BIN1,HIGH)
+            GPIO.output(BIN2,LOW) 
+
         elif direction < 0.0 and direction >= -180.0:  # turn right
-            M1A_pwm.ChangeDutyCycle(20)
-            M1B_pwm.ChangeDutyCycle(0)
-            M4A_pwm.ChangeDutyCycle(0)
-            M4B_pwm.ChangeDutyCycle(100 * diff_rot)
+            M_pwmA.ChangeDutyCycle(100)
+            M_pwmB.ChangeDutyCycle(20)            
+            GPIO.outout(AIN1,HIGH)
+            GPIO.output(AIN2,LOW)
+            GPIO.output(BIN1,HIGH)
+            GPIO.output(BIN2,LOW) 
 
 
 def set_direction():  # -180<direction<180  #rover move to right while direction > 0
