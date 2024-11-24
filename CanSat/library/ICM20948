@@ -1,0 +1,271 @@
+#!/usr/bin/python3 -u
+# -*- coding: utf-8 -*-
+
+
+import sys  # sysモジュールの呼び出し
+import wiringpi as wi  # wiringPiモジュールの呼び出し
+import time  # timeライブラリの呼び出し
+import datetime  # datetimeモジュールの呼び出し
+import os
+
+# データ計測時間は　SAMPLING_TIME x TIMES
+SAMPLING_TIME = 0.1  # データ取得の時間間隔[sec]
+TIMES = 100  # データの計測回数
+
+wi.wiringPiSetup()  # wiringPiの初期化
+i2c = wi.I2C()  # i2cの初期化
+
+address = 0x68
+addrAK09916 = 0x0C # 磁気センサAK8963 アドレス
+ICM20948 = i2c.setup(address) # i2cアドレス0x68番地をICM20948として設定(アドレスは$sudo i2cdetect 1で見られる)
+AK09916 = i2c.setup(addrAK09916)
+gyroRange = 1000  # 250, 500, 1000, 2000　'dps'から選択
+accelRange = 8  # +-2, +-4, +-8, +-16 'g'から選択
+magRange = 4912  # 'μT'
+
+# センサ定数
+REG_PWR_MGMT_1 = 0x06
+REG_INT_PIN_CFG = 0xF0
+REG_ACCEL_CONFIG1 = 0x14
+REG_ACCEL_CONFIG2 = 0x15
+REG_GYRO_CONFIG = 0x01
+
+
+MAG_MODE_SERIAL_2 = 2  # 磁気センサ100Hz連続測定モード
+MAG_ACCESS = False  # 磁気センサへのアクセス可否
+MAG_MODE = 0  # 磁気センサモード
+MAG_BIT = 16  # 磁気センサが出力するbit数
+
+# オフセット用変数
+offsetAccelX = 0
+offsetAccelY = 0
+offsetAccelZ = 0
+offsetGyroX = 0
+offsetGyroY = 0
+offsetGyroZ = 0
+#インスタンス変数
+self_acc = [0.0, 0.0, 0.0] 
+self_gyro = [0.0, 0.0, 0.0]
+self_mag = [0.0, 0.0, 0.0]
+#その他変数
+accelCoefficient = 0
+gyroCoefficient = 0
+magCoefficient16 = 0
+magCoefficient14 = 0
+
+# レジスタを初期設定に戻す。
+def resetRegister():
+    global MAG_ACCESS
+    if MAG_ACCESS == True:
+        i2c.writeReg8(AK09916, 0x1F, 0x01)
+    i2c.writeReg8(ICM20948, 0x06, 0x80)
+    MAG_ACCESS = False
+    time.sleep(0.1)
+
+
+# センシング可能な状態にする。
+def powerWakeUp():
+    # PWR_MGMT_1をクリア
+    i2c.writeReg8(ICM20948, REG_PWR_MGMT_1, 0x00)
+    time.sleep(0.1)
+    # I2Cで磁気センサ機能(AK09916)へアクセスできるようにする(BYPASS_EN=1)
+    i2c.writeReg8(ICM20948, REG_INT_PIN_CFG, 0x02)
+    global MAG_ACCESS
+    MAG_ACCESS = True
+    time.sleep(0.1)
+
+
+# 加速度の測定レンジを設定
+# val = 16, 8, 4, 2(default)
+val = 8
+
+
+def setAccelRange(val, _calibration=False):
+    # +-2g (00), +-4g (01), +-8g (10), +-16g (11)
+    #valは、加速度計が測定する最大加速度の範囲を指定する整数
+    if val == 16:
+        accelRange = 16
+        _data = 0x18 #Register Valuesを設定している
+    elif val == 8:
+        accelRange = 8
+        _data = 0x10
+    elif val == 4:
+        accelRange = 4
+        _data = 0x08
+    else:
+        accelRange = 2
+        _data = 0x00
+    print("set accelRange=%d [g]" % accelRange)
+    i2c.writeReg8(ICM20948, REG_ACCEL_CONFIG1, _data) #レジスタへの書き込み
+    accelCoefficient = accelRange / float(0x8000) #加速度計の係数設定
+    time.sleep(0.1)
+
+    # オフセット値をリセット
+    offsetAccelX       = 0
+    offsetAccelY       = 0
+    offsetAccelZ       = 0
+    
+    return
+
+    # ジャイロの測定レンジを設定します。
+    # val= 2000, 1000, 500, 250(default)
+
+
+def setGyroRange(val, _calibration=False):
+    if val == 2000:
+        gyroRange = 2000
+        _data = 0x18
+    elif val == 1000:
+        gyroRange = 1000
+        _data = 0x10
+    elif val == 500:
+        gyroRange = 500
+        _data = 0x08
+    else:
+        gyroRange = 250
+        _data = 0x00
+    print("set gyroRange=%d [dps]" % gyroRange)
+    i2c.writeReg8(ICM20948, REG_GYRO_CONFIG, _data)
+    gyroCoefficient = gyroRange / float(0x8000)
+    time.sleep(0.1)
+
+    # Reset offset value (so that the past offset value is not inherited)
+    # offsetGyroX        = 0
+    # offsetGyroY        = 0
+    # offsetGyroZ        = 0
+    
+    return
+
+
+# 磁気センサのレジスタを設定する
+def setMagRegister(_mode, _bit):
+    global MAG_ACCESS
+    global MAG_MODE
+    if MAG_ACCESS == False:
+        # 磁気センサへのアクセスが有効になっていない場合は例外
+        raise Exception('001 Access to a sensor is invalid.')
+
+    _writeData = 0x00 #これどうしたらいいんだろ　おかしかったら消す
+    # 測定モードの設定
+    _writeData = 0x06 #これが本物
+    MAG_MODE = MAG_MODE_SERIAL_2
+    
+
+    # 出力するbit数 データの精度や範囲に影響
+    if _bit == '14bit':  # output 14bit
+        _writeData = _writeData | 0x00 #14bitの場合、_writeDataの値は変化しない（OR演算）
+        MAG_BIT = 14
+    else:  # _bit='16bit'      # output 16bit
+        _writeData = _writeData | 0x10 #0x10を加えることにより16bitに変更
+        MAG_BIT = 16
+    print("set MAG_MODE=%s, %d bit" % (_mode, MAG_BIT))
+    i2c.writeReg8(AK09916, 0x0A, _writeData) #レジスタへの書き込み
+    
+    
+
+    # センサからのデータはそのまま使おうとするとunsigned(符号なし整数)として扱われるため、signed(符号付き整数)に変換(16ビット限定）
+    #最上位ビットが符号ビットとなる 1負 0正
+def u2s(unsigneddata):
+    if unsigneddata & (0x01 << 15):
+        return -1 * ((unsigneddata ^ 0xffff) + 1)
+    return unsigneddata
+
+
+# 加速度値を取得
+#i2c.readReg8() は、指定されたI2Cアドレスから特定のレジスタのデータを8ビットで読み取る関数
+#各軸について16ビット（2バイト）のデータが2つのレジスタに分かれて格納されている
+def getAccel():
+    ACCEL_XOUT_H = i2c.readReg8(ICM20948, 0x3B) #mpu9250 デバイスのI2Cアドレス
+    ACCEL_XOUT_L = i2c.readReg8(ICM20948, 0x3C) #0x3Cは加速度の生データを格納
+    ACCEL_YOUT_H = i2c.readReg8(ICM20948, 0x3D)
+    ACCEL_YOUT_L = i2c.readReg8(ICM20948, 0x3E)
+    ACCEL_ZOUT_H = i2c.readReg8(ICM20948, 0x3F)
+    ACCEL_ZOUT_L = i2c.readReg8(ICM20948, 0x40)
+    rawX = accelCoefficient * u2s(ACCEL_XOUT_H << 8 | ACCEL_XOUT_L) + offsetAccelX #結合し16バイトに #offsetAccel 補正
+    rawY = accelCoefficient * u2s(ACCEL_YOUT_H << 8 | ACCEL_YOUT_L) + offsetAccelY #u2cは符号をつける関数↑
+    rawZ = accelCoefficient * u2s(ACCEL_ZOUT_H << 8 | ACCEL_ZOUT_L) + offsetAccelZ #accelCoefficient 係数（前出）
+    # data    = i2c.readReg8(address, 0x3B )
+    # print "getaccell data=%d"%data
+    # rawX    = accelCoefficient * u2s(data[0] << 8 | data[1]) + offsetAccelX
+    # rawY    = accelCoefficient * u2s(data[2] << 8 | data[3]) + offsetAccelY
+    # rawZ    = accelCoefficient * u2s(data[4] << 8 | data[5]) + offsetAccelZ
+    self_acc = [rawX, rawY, rawZ] #インスタンス変数に加速度データを格納（変更点）
+    return self_acc
+
+# ジャイロ値を取得
+def getGyro():
+    GYRO_XOUT_H = i2c.readReg8(ICM20948, 0x43)
+    GYRO_XOUT_L = i2c.readReg8(ICM20948, 0x44)
+    GYRO_YOUT_H = i2c.readReg8(ICM20948, 0x45)
+    GYRO_YOUT_L = i2c.readReg8(ICM20948, 0x46)
+    GYRO_ZOUT_H = i2c.readReg8(ICM20948, 0x47)
+    GYRO_ZOUT_L = i2c.readReg8(ICM20948, 0x48)
+    rawX = gyroCoefficient * u2s(GYRO_XOUT_H << 8 | GYRO_XOUT_L) + offsetGyroX
+    rawY = gyroCoefficient * u2s(GYRO_YOUT_H << 8 | GYRO_YOUT_L) + offsetGyroY
+    rawZ = gyroCoefficient * u2s(GYRO_ZOUT_H << 8 | GYRO_ZOUT_L) + offsetGyroZ
+    # data    =  i2c.readReg8(address, 0x43 )
+    # rawX    = gyroCoefficient * u2s(data[0] << 8 | data[1]) + offsetGyroX
+    # rawY    = gyroCoefficient * u2s(data[2] << 8 | data[3]) + offsetGyroY
+    # rawZ    = gyroCoefficient * u2s(data[4] << 8 | data[5]) + offsetGyroZ
+    self_gyro = [rawX, rawY, rawZ]
+    return self_gyro
+
+
+# 磁気値を取得
+def getMag():
+    global MAG_ACCESS
+    if MAG_ACCESS == False:
+        # 磁気センサへのアクセスが有効になっていない場合は例外
+        raise Exception('002 Access to a sensor is invalid.')
+
+    
+
+    status = i2c.readReg8(AK09916, 0x02)
+    if (status & 0x02) == 0x02:
+            # if (status[0] & 0x02) == 0x02:
+            # データオーバーランがあるので再度センシング
+        i2c.readReg8(AK09916, 0x09)
+
+    # ST1レジスタを確認してデータ読み出しが可能か確認する
+    status = i2c.readReg8(AK09916, 0x02)
+    while (status & 0x01) != 0x01:
+        # while (status[0] & 0x01) != 0x01:
+        # Wait until data ready state.
+        time.sleep(0.01)
+        status = i2c.readReg8(AK09916, 0x02)
+
+    # データ読み出し
+    MAG_XOUT_L = i2c.readReg8(AK09916, 0x03)
+    MAG_XOUT_H = i2c.readReg8(AK09916, 0x04)
+    MAG_YOUT_L = i2c.readReg8(AK09916, 0x05)
+    MAG_YOUT_H = i2c.readReg8(AK09916, 0x06)
+    MAG_ZOUT_L = i2c.readReg8(AK09916, 0x07)
+    MAG_ZOUT_H = i2c.readReg8(AK09916, 0x08)
+    MAG_OF = i2c.readReg8(AK09916, 0x09)
+    rawX = u2s(MAG_XOUT_H << 8 | MAG_XOUT_L)
+    rawY = u2s(MAG_YOUT_H << 8 | MAG_YOUT_L)
+    rawZ = u2s(MAG_ZOUT_H << 8 | MAG_ZOUT_L)
+    st2 = MAG_OF
+    # data    = i2c.readReg8(addrAK8963, 0x03 ,7)
+    # rawX    = u2s(data[1] << 8 | data[0])  # Lower bit is ahead.
+    # rawY    = u2s(data[3] << 8 | data[2])  # Lower bit is ahead.
+    # rawZ    = u2s(data[5] << 8 | data[4])  # Lower bit is ahead.
+    # st2     = data[6]
+
+    # オーバーフローチェック 重かったらカット
+    if (st2 & 0x08) == 0x08:
+        # オーバーフローのため正しい値が得られていない
+        raise Exception('004 Mag sensor over flow')
+
+    # μTへの変換（単位変換）bmx055のライブラリにはない
+    if MAG_BIT == 16:  # output 16bit
+        rawX = rawX * magCoefficient16
+        rawY = rawY * magCoefficient16
+        rawZ = rawZ * magCoefficient16
+    else:  # output 14bit
+        rawX = rawX * magCoefficient14
+        rawY = rawY * magCoefficient14
+        rawZ = rawZ * magCoefficient14
+    
+    self_mag = [rawX, rawY, rawZ]
+    return self_mag
