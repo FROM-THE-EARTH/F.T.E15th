@@ -4,15 +4,17 @@ import math
 import threading
 import datetime
 import pigpio
+import wiringpi as pi
 import csv
 import os
 import cv2
 import RPi.GPIO as GPIO
-import wiringpi as pi
-from library import BMX055
-from library import BMP085
+import sys
+sys.path.append("/home/raspberry/F.T.E15th/CanSat/Star-t/code/library")
+import detect_corn as dc
 from micropyGPS import MicropyGPS
-from library import detect_corn as dc
+import BMX055
+import BMP085
 from picamera2 import Picamera2
 import matplotlib.pyplot as plt
 
@@ -83,7 +85,7 @@ bmp = BMP085.BMP085()
 servo = pigpio.pi()
 
 nowTime = datetime.datetime.now()
-fileName = '/home/karisora/FTE14/NSE2024/log/testlog_' + nowTime.strftime('%Y-%m%d-%H%M%S') + '.csv'
+fileName = '/home/raspberry/F.T.E15th/CanSat/Star-t/code/log/testlog' + nowTime.strftime('%Y-%m%d-%H%M%S') + '.csv'
 
 
 def main():
