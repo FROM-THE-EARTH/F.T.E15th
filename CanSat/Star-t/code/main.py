@@ -4,7 +4,6 @@ import math
 import threading
 import datetime
 import pigpio
-import wiringpi as pi
 import csv
 import os
 import cv2
@@ -233,7 +232,7 @@ def Setup():
 
 
     detector = dc.detector()
-    roi_img = cv2.imread("./library/roi1.png")
+    roi_img = cv2.imread("./library/roi_red_v2.png")
     
     detector.set_roi_img(roi_img)
 
@@ -501,7 +500,6 @@ def setData_thread():
 def moveMotor_thread():
     GPIO.setmode(GPIO.BCM)
 
-    pi.wiringPiSetupGpio()
     GPIO.setup(PWMA, GPIO.OUT)
     GPIO.setup(AIN1, GPIO.OUT)
     GPIO.setup(AIN2, GPIO.OUT)
