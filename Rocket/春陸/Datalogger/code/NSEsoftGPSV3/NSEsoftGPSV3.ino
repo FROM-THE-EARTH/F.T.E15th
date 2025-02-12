@@ -50,13 +50,11 @@ void setup() {
 }
 void loop() {
   if (GpsSerial.available()) {
-    //Serial.write(GpsSerial.read());
-    gpsBuffer = GpsSerial.read(); // get data as character
+    Serial.write(Serial.read());
+    gpsBuffer = Serial.read(); // get data as character
     if (gpsBuffer == '\n') {
 //Serial.println(61);
       if (ParseNMESentence(gpsSentence, lat_buff, lng_buff)){
-        Serial.println(lat_buff);
-        Serial.println(lng_buff);
         float lt = (lat_buff-40.2)*10000;
         float lg = (lng_buff-140)*10000;
         Lat = (int)lt;
