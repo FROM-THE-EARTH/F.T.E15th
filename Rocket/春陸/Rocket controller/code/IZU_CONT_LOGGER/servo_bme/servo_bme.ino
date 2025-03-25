@@ -1,9 +1,12 @@
-#include "Seeed_BME280.h"
+#include<Adafruit_BME280.h>
 #include <Wire.h>
 #include <Servo.h>
 
-BME280 bme280;
+#define SEALEVELPRESSURE_HPA (1013.25)
+Adafruit_BME280 bme;
+
 float alt=0;
+float pres=0;
 float maxalt=0;
 float dalt=0;
 int count=0;
@@ -13,32 +16,50 @@ const int servo=5;
 void setup()
 { 
   myservo.attach(servo,500,2400);
+  pinMode(16,OUTPUT);
+  digitalWrite(16,LOW);
   Serial.begin(9600);
-  delay(1000);
-  Serial.print(1);
-  if(!bme280.init()){
-    Serial.println("Device error!");
+  bool status;
+  status = bme.begin(0x76);
+  if (!status) {
+    Serial.println("BME280 sensor");
+    while (10);
   }
-  Serial.print(2);
+    int delayTime = 1000;
+    int waittime=120*60*1000;
+    digitalWrite(16,HIGH);
+    delay(waittime);
 }
 
 void loop()
 {count++;
-float pressure;
-pressure = bme280.getPressure();
-alt=bme280.calcAltitude(pressure);
+  float temperature = bme.readTemperature();
+  float barometric = bme.readPressure() / 100.0F;
+  alt = bme.readAltitude(SEALEVELPRESSURE_HPA);
+  float humidity = bme.readHumidity();
 if (count==1){
   maxalt=alt;
 }else{
   if (alt>maxalt){
     maxalt=alt;
+
   }
 }
-Serial.printldn(maxalt-alt);
-if ((maxalt-alt)>5){
-  Serial.println("parachute open");
-myservo.write(90);
-delay(10000);
+Serial.println(maxalt-alt);
+float a = maxalt-alt;
+if (a<1){
+  digitalWrite(16,HIGH);
+} else{
+  digitalWrite(16,LOW);
+}
+if ((maxalt-alt)>10){
+  Serial.println("open");
+  myservo.write(180);
+delay(1000);
+myservo.write(105);
+delay(3000);
+myservo.write(180);
+delay(1000);
 }
 delay(1000);
 }
