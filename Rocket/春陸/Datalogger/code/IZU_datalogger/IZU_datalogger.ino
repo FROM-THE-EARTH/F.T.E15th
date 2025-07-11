@@ -142,7 +142,7 @@ void loop(void) {
    
     uint8_t system, gyro, accel, mag = 0;
     /*bno.getCalibration(&system, &gyro, &accel, &mag);
-    dataFile.print("Calibration: Sys=");
+    dataFile.priant("Calibration: Sys=");
     dataFile.print(system);
     dataFile.print(" Gyro=");
     dataFile.print(gyro);*/
