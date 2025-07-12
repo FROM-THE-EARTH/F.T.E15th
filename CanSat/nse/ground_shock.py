@@ -6,6 +6,7 @@ import csv
 import time
 nowTime = datetime.datetime.now()
 bno=bno055.BNO055()
+bno.setUp()
 fileName = '/home/raspberry/Desktop/log/testlog_' + nowTime.strftime('%Y-%m%d-%H%M%S') + '.csv'
 start=time.time()
 while True:
