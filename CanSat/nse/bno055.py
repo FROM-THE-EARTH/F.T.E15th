@@ -104,11 +104,11 @@ class BNO055:
             #if value & 0x8000: # Check if negative (MSB is 1)
                 #value -= 0x10000 # Convert to signed 2's complement
             #return value
-         data = self.i2c.read_i2c_block_data(self.addr, lsb_reg, 2)
-         value = (data[1] << 8) | data[0]
-         if value & 0x8000:
-            value -= 0x10000
-            return value
+            data = self.i2c.read_i2c_block_data(self.addr, lsb_reg, 2)
+            value = (data[1] << 8) | data[0]
+            if value & 0x8000:
+                value -= 0x10000
+                return value
         except IOError as e:
             print(f"I/O error reading 16-bit word from 0x{lsb_reg:02X}: {e}")
             raise # Re-raise the exception to indicate failure
