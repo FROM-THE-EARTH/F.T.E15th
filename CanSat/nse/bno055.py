@@ -108,7 +108,7 @@ class BNO055:
             value = (data[1] << 8) | data[0]
             if value & 0x8000:
                 value -= 0x10000
-                return value
+            return value
         except IOError as e:
             print(f"I/O error reading 16-bit word from 0x{lsb_reg:02X}: {e}")
             raise # Re-raise the exception to indicate failure

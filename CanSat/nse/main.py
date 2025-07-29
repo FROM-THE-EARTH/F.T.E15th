@@ -20,8 +20,8 @@ from picamera2 import Picamera2
 # 定数　上書きしない
 MAG_CONST = 8.53  # 地磁気補正用の偏角
 CALIBRATION_MILLITIME = 10 * 1000
-TARGET_LAT = 40.14230733
-TARGET_LNG = 139.98738483
+TARGET_LAT = 0.001
+TARGET_LNG = 0
 # TARGET_LAT = 40.14247083
 # TARGET_LNG = 139.98780116
 TARGET_ALTITUDE = 20
@@ -35,8 +35,8 @@ LED3 = 21
 HIGH = 1
 LOW = 0
 PWMA=18
-AIN1=25
-AIN2=8
+AIN1=8
+AIN2=25
 PWMB=19
 BIN1=9
 BIN2=11
@@ -64,6 +64,7 @@ pres = 0.0
 distance = 0
 angle = 0.0
 azimuth = 0.0
+theta=0
 direction = 0.0
 frequency = 50
 phase = 0
@@ -84,6 +85,7 @@ bno=bno055.BNO055()
 bno.setUp()
 
 nowTime = datetime.datetime.now()
+start=time.time()
 fileName = '/home/raspberry/Desktop/log/ete/testlog' + nowTime.strftime('%Y-%m%d-%H%M%S') + '.csv'
 
 
@@ -95,7 +97,7 @@ def main():
 
     GPIO.setwarnings(False)
     Setup()
-    phase = 0
+    phase = 3
     n = 0
 
     while True:
@@ -130,11 +132,9 @@ def main():
             phase = 3
         elif phase == 3:
             print("phase3 : GPS start")
-#            print(direction)
-#            print(distance)
 #            print("--------------")
             if distance < 3.0:  # GPS座標との距離 < m以内
-                phase = 4
+                 phase = 4
                 
         elif phase == 4:
             print("phase4 : camera start")
@@ -198,7 +198,7 @@ def Setup():
 
     with open(fileName, 'a') as f:
         writer = csv.writer(f)
-        writer.writerow(['MilliTime','Phase','AccX','AccY','AccZ','GyroX','GyroY','GyroZ','MagX','MagY','MagZ','ALT','Distance','Azimuth','Direction','Fall'])
+        writer.writerow(['MilliTime','Phase','ido','keido','AccX','AccY','AccZ','GyroX','GyroY','GyroZ','MagX','MagY','MagZ','ALT','Distance','Azimuth','Direction','Fall'])
         
     getThread = threading.Thread(target=moveMotor_thread, args=())
     getThread.daemon = True
@@ -214,6 +214,11 @@ def Setup():
     dataThread.daemon = True
     dataThread.setDaemon(True)
     dataThread.start()
+
+    gpsThread = threading.Thread(target=GPS_thread, args=())
+    gpsThread.daemon = True
+    gpsThread.setDaemon(True)
+    gpsThread.start()
 
     detector = dc.detector()
     roi_img = cv2.imread("/home/raspberry/Desktop/library/roi_red_v2.JPG")
@@ -235,7 +240,6 @@ def getbnoData():  # get BNO data
         acc[2]=pre_z
     else:
         pre_z=acc[2]
-        print(pre_z)
     gyro = bno.getGyro()
     mag = bno.getMag()
     mag[1] = mag[1]
@@ -270,7 +274,23 @@ def get_object_distance(timeout=0.01):  #超音波での障害物との距離計
     t2 = time.time() # 超音波受信時刻（EchoピンがLOWになった時刻）格納
     return (t2 - t1) * SPEED_OF_SOUND / 2 # 時間差から対象物までの距離計算
 
+def detect_stuck_by_GPS(): #generation構文
+    global stuck_GPS_Flag #0:not stuck　1:stuck
+    while_Flag=True
+    t1=0.0
 
+    while True:
+        if while_Flag:
+            t1=time.time()
+            distance_buff= distance
+            while_Flag= False
+            yield
+        if time.time()-t1 < 10:
+            yield
+            continue
+        if abs(distance - distance_buff) < 1:
+            stuck_GPS_Flag = 1
+        while_Flag = True  
 
 
 # def detect_upside_down():
@@ -350,6 +370,24 @@ def calcAzimuth():  # 方位角計算用関数
     elif mag[1] < 0:
         azimuth = -90 + azimuth
 
+def calcAngle():  # 角度計算用関数 : north=0 east=90 west = -90
+    global angle
+    forEAstAngle = 0.0
+    EARTH_RADIUS = 6378136.59
+
+    dx = (math.pi / 180) * EARTH_RADIUS * (TARGET_LNG - lng)
+    dy = (math.pi / 180) * EARTH_RADIUS * (TARGET_LAT - lat)
+    if dx == 0 and dy == 0:
+        forEastAngle = 0.0
+    else:
+        forEastAngle = (180 / math.pi) * math.atan2(dy, dx)  # arctan
+    angle = forEastAngle - 90
+    if angle < -180:
+        angle += 360
+    if angle > 180:
+        angle -= 360
+    angle = -angle   
+    
 
 def servoMotor(angle):
     assert 0 <= angle <= 180, '角度は0から180の間でなければなりません'
@@ -397,13 +435,61 @@ def setData_thread():
     while True:
         getbnoData()
         calcAzimuth()
+        calcTheta(TARGET_LAT,TARGET_LNG,lat,lng)
         set_direction()
-
+         
+        end=time.time()
+        print(f'{lng},{lat}')
+        print(f'{direction}')
+        print(f'{distance}')
         with open(fileName, 'a', newline="") as f:
             writer = csv.writer(f)
-            writer.writerow([currentMilliTime(), round(phase,1), acc[0], acc[1], acc[2], gyro[0], gyro[1], gyro[2], mag[1], mag[1], mag[2], alt, distance, object_distance, azimuth,direction, fall])
+            writer.writerow([round(end-start,3), round(phase,1),lng,lat, acc[0], acc[1], acc[2], gyro[0], gyro[1], gyro[2], mag[1], mag[1], mag[2], alt, distance, object_distance, azimuth,direction, fall])
         time.sleep(DATA_SAMPLING_RATE)
 
+def calc_distance(lat1,lng1,lat2,lng2):
+    distance=6371*math.acos(
+    math.sin(math.radians(lat1))*
+    math.sin(math.radians(lat2))+
+    math.cos(math.radians(lat1))*
+    math.cos(math.radians(lat2))*
+    math.cos(math.radians(lng1)-math.radians(lng2)))*1000
+    return distance
+    
+def GPS_thread():  # GPSモジュールを読み、GPSオブジェクトを更新する
+    global lat
+    global lng
+    global gps_detect
+    global stuck_GPS_Flag
+    global distance
+    stuck_GPS_detection = detect_stuck_by_GPS()  #genetration 
+
+    s = serial.Serial('/dev/serial0', 115200)
+    s.readline()  # 最初の1行は中途半端なデーターが読めることがあるので、捨てる
+    gps = MicropyGPS(9, 'dd')
+    
+    while True:
+        sentence = s.readline().decode('utf-8')  # GPSデーターを読み、文字列に変換する
+
+        if s.in_waiting > 64: # バッファを削除
+            s.reset_input_buffer()
+        if sentence[0] != '$':  # 先頭が'$'でなければ捨てる
+            continue
+        for x in sentence:  # 読んだ文字列を解析してGPSオブジェクトにデーターを追加、更新する
+            gps.update(x)
+        lat = gps.latitude[0]
+        lng = gps.longitude[0]
+        """
+        if lat == 0.0:
+            gps_detect = 0
+            print("None gnss value")
+            continue
+        """
+        gps_detect = 1
+        distance=calc_distance(TARGET_LAT,TARGET_LNG,lat,lng)
+        #stuck_GPS_Flag立てちゃうよ^^
+        stuck_GPS_detection.__next__() 
+        
 def moveMotor_thread():
     GPIO.setmode(GPIO.BCM)
 
@@ -447,7 +533,7 @@ def moveMotor_thread():
             GPIO.output(BIN2,LOW) 
 
         elif direction == -360.0:  #forward
-            M_pwmA.ChangeDutyCycle(100)
+            M_pwmA.ChangeDutyCycle(85)
             M_pwmB.ChangeDutyCycle(100)
             GPIO.output(AIN1,HIGH)
             GPIO.output(AIN2,LOW)
@@ -519,6 +605,12 @@ def set_direction():  # -180<direction<180  #rover move to right while direction
 
     elif phase == 2:  # キャリブレーション
         direction = -400.0  # right
+    elif phase == 3:
+        if abs(azimuth-theta)>15:
+            direction=-400.0
+        else:
+            direction=-360
+    
 
     elif phase == 4:
         direction = -400.0
