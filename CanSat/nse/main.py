@@ -198,7 +198,7 @@ def Setup():
 
     with open(fileName, 'a') as f:
         writer = csv.writer(f)
-        writer.writerow(['MilliTime','Phase','ido','keido','AccX','AccY','AccZ','GyroX','GyroY','GyroZ','MagX','MagY','MagZ','ALT','Distance','Azimuth','Direction','Fall'])
+        writer.writerow(['MilliTime','Phase','ido','keido','AccX','AccY','AccZ','GyroX','GyroY','GyroZ','MagX','MagY','MagZ','ALT','Distance','Azimuth','ahgle','Direction','Fall'])
         
     getThread = threading.Thread(target=moveMotor_thread, args=())
     getThread.daemon = True
@@ -444,7 +444,7 @@ def setData_thread():
         print(f'{distance}')
         with open(fileName, 'a', newline="") as f:
             writer = csv.writer(f)
-            writer.writerow([round(end-start,3), round(phase,1),lng,lat, acc[0], acc[1], acc[2], gyro[0], gyro[1], gyro[2], mag[1], mag[1], mag[2], alt, distance, object_distance, azimuth,direction, fall])
+            writer.writerow([round(end-start,3), round(phase,1),lng,lat, acc[0], acc[1], acc[2], gyro[0], gyro[1], gyro[2], mag[1], mag[1], mag[2], alt, distance, object_distance, azimuth,angle,direction, fall])
         time.sleep(DATA_SAMPLING_RATE)
 
 def calc_distance(lat1,lng1,lat2,lng2):
@@ -606,10 +606,18 @@ def set_direction():  # -180<direction<180  #rover move to right while direction
     elif phase == 2:  # キャリブレーション
         direction = -400.0  # right
     elif phase == 3:
-        if abs(azimuth-theta)>15:
-            direction=-400.0
+
+        if (angle - azimuth) > 180:
+            theta = angle - 360
+        elif (azimuth - angle) > 180:
+            theta = angle + 360
         else:
-            direction=-360
+            theta = angle
+
+        direction = theta - azimuth
+
+    if abs(direction) < 5.0: # margin of the target angle
+        direction = -360.0
     
 
     elif phase == 4:
