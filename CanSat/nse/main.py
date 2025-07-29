@@ -20,8 +20,8 @@ from picamera2 import Picamera2
 # 定数　上書きしない
 MAG_CONST = 8.53  # 地磁気補正用の偏角
 CALIBRATION_MILLITIME = 10 * 1000
-TARGET_LAT = 0.001
-TARGET_LNG = 0
+TARGET_LAT = 38.2607875
+TARGET_LNG = 140.854018
 # TARGET_LAT = 40.14247083
 # TARGET_LNG = 139.98780116
 TARGET_ALTITUDE = 20
@@ -55,6 +55,7 @@ gyro = [0.0, 0.0, 0.0]
 mag = [0.0, 0.0, 0.0]
 calibBias = [0.0, 0.0, 0.0]
 calibRange = [1.0, 1.0, 1.0]
+complete=0
 lat = 0.0
 lng = 0.0
 alt = 0.0
@@ -77,7 +78,7 @@ object_distance = 0.0
 upside_down_Flag = 0 # judge the upside down by acc(bmx)
 stuck_uss_Flag=0    # judge the stuck by ultrasonic sensor
 stuck_GPS_Flag = 0  # judge the stuck by GPS : no obstacle distance_Flag = 0, if CanSat stucked distance_Flag = 1
-
+alpha=0
 
 bmp = bmp180.BMP180(oss=3)
 bmp.setUp()
@@ -97,11 +98,11 @@ def main():
 
     GPIO.setwarnings(False)
     Setup()
-    phase = 3
+    phase = 2
     n = 0
 
     while True:
-        print("-----------------------------------")
+        #print("-----------------------------------")
         if phase == 0:  # 投下
             print("phase0 : falling")
             start = time.time()
@@ -131,10 +132,11 @@ def main():
             calibration()
             phase = 3
         elif phase == 3:
+            pass
             print("phase3 : GPS start")
 #            print("--------------")
-            if distance < 3.0:  # GPS座標との距離 < m以内
-                 phase = 4
+            #if distance < 3.0:  # GPS座標との距離 < m以内
+            #     phase = 3
                 
         elif phase == 4:
             print("phase4 : camera start")
@@ -198,7 +200,7 @@ def Setup():
 
     with open(fileName, 'a') as f:
         writer = csv.writer(f)
-        writer.writerow(['MilliTime','Phase','ido','keido','AccX','AccY','AccZ','GyroX','GyroY','GyroZ','MagX','MagY','MagZ','ALT','Distance','Azimuth','ahgle','Direction','Fall'])
+        writer.writerow(['MilliTime','Phase','ido','keido','AccX','AccY','AccZ','GyroX','GyroY','GyroZ','MagX','MagY','MagZ','ALT','Distance','Azimuth','angle','Direction','Fall'])
         
     getThread = threading.Thread(target=moveMotor_thread, args=())
     getThread.daemon = True
@@ -325,6 +327,7 @@ def flying(): #落下検知関数 :飛んでいるときはTrueを返し続け�
 def calibration():  # calibrate BMX raw data
     global calibBias
     global calibRange
+    global complete
     max = [0.0, 0.0, 0.0]
     min = [0.0, 0.0, 0.0]
     max[1] = mag[1]
@@ -369,24 +372,25 @@ def calcAzimuth():  # 方位角計算用関数
         azimuth = 90 + azimuth
     elif mag[1] < 0:
         azimuth = -90 + azimuth
-
-def calcAngle():  # 角度計算用関数 : north=0 east=90 west = -90
+        
+def calcAngle():
     global angle
-    forEAstAngle = 0.0
-    EARTH_RADIUS = 6378136.59
-
-    dx = (math.pi / 180) * EARTH_RADIUS * (TARGET_LNG - lng)
-    dy = (math.pi / 180) * EARTH_RADIUS * (TARGET_LAT - lat)
-    if dx == 0 and dy == 0:
-        forEastAngle = 0.0
+    forEastAngle=0.0
+    EARTH_RADIUS=6378156.59
+    
+    dx=(math.pi/180)*EARTH_RADIUS*(TARGET_LNG-lng)
+    dy=(math.pi/180)*EARTH_RADIUS*(TARGET_LAT-lat)
+    
+    if dx==0 and dy ==0:
+        forEastAngle=0.0
     else:
-        forEastAngle = (180 / math.pi) * math.atan2(dy, dx)  # arctan
-    angle = forEastAngle - 90
-    if angle < -180:
-        angle += 360
-    if angle > 180:
-        angle -= 360
-    angle = -angle   
+        forEastAngle=(180/math.pi)*math.atan2(dy,dx)
+    angle=forEastAngle-90
+    if angle<-180:
+        angle+=360
+    if angle>180:
+        angle-=360
+    angle=-angle
     
 
 def servoMotor(angle):
@@ -435,26 +439,26 @@ def setData_thread():
     while True:
         getbnoData()
         calcAzimuth()
-        calcTheta(TARGET_LAT,TARGET_LNG,lat,lng)
+        calcAngle()
         set_direction()
          
         end=time.time()
-        print(f'{lng},{lat}')
-        print(f'{direction}')
-        print(f'{distance}')
+        #print(lat,lng,distance)
+        if complete== True:
+            print(f'azimuth:{azimuth}')
         with open(fileName, 'a', newline="") as f:
             writer = csv.writer(f)
             writer.writerow([round(end-start,3), round(phase,1),lng,lat, acc[0], acc[1], acc[2], gyro[0], gyro[1], gyro[2], mag[1], mag[1], mag[2], alt, distance, object_distance, azimuth,angle,direction, fall])
         time.sleep(DATA_SAMPLING_RATE)
 
 def calc_distance(lat1,lng1,lat2,lng2):
+    global distance
     distance=6371*math.acos(
     math.sin(math.radians(lat1))*
     math.sin(math.radians(lat2))+
     math.cos(math.radians(lat1))*
     math.cos(math.radians(lat2))*
     math.cos(math.radians(lng1)-math.radians(lng2)))*1000
-    return distance
     
 def GPS_thread():  # GPSモジュールを読み、GPSオブジェクトを更新する
     global lat
@@ -462,12 +466,10 @@ def GPS_thread():  # GPSモジュールを読み、GPSオブジェクトを更�
     global gps_detect
     global stuck_GPS_Flag
     global distance
-    stuck_GPS_detection = detect_stuck_by_GPS()  #genetration 
-
+    #stuck_GPS_detection = detect_stuck_by_GPS()  #genetration 
     s = serial.Serial('/dev/serial0', 115200)
     s.readline()  # 最初の1行は中途半端なデーターが読めることがあるので、捨てる
     gps = MicropyGPS(9, 'dd')
-    
     while True:
         sentence = s.readline().decode('utf-8')  # GPSデーターを読み、文字列に変換する
 
@@ -479,16 +481,15 @@ def GPS_thread():  # GPSモジュールを読み、GPSオブジェクトを更�
             gps.update(x)
         lat = gps.latitude[0]
         lng = gps.longitude[0]
-        """
         if lat == 0.0:
             gps_detect = 0
             print("None gnss value")
             continue
-        """
+        
         gps_detect = 1
         distance=calc_distance(TARGET_LAT,TARGET_LNG,lat,lng)
         #stuck_GPS_Flag立てちゃうよ^^
-        stuck_GPS_detection.__next__() 
+        #stuck_GPS_detection.__next__() 
         
 def moveMotor_thread():
     GPIO.setmode(GPIO.BCM)
@@ -571,6 +572,7 @@ def set_direction():  # -180<direction<180  #rover move to right while direction
     global stuck_uss_Flag
     global stuck_GPS_Flag
     global upside_down_Flag
+    global alpha
     
 #         #フラグ処理を優先
 #     if upside_down_Flag == 1 and phase >= 3:
@@ -605,21 +607,19 @@ def set_direction():  # -180<direction<180  #rover move to right while direction
 
     elif phase == 2:  # キャリブレーション
         direction = -400.0  # right
+        #direction=360
     elif phase == 3:
-
-        if (angle - azimuth) > 180:
-            theta = angle - 360
-        elif (azimuth - angle) > 180:
-            theta = angle + 360
+        if(angle-azimuth)>180:
+            theta=angle-360
+        elif(azimuth-angle)>180:
+            theta=angle+360
         else:
-            theta = angle
-
-        direction = theta - azimuth
-
-    if abs(direction) < 5.0: # margin of the target angle
-        direction = -360.0
-    
-
+            theta=angle
+        direction=theta-azimuth
+        
+        if abs(direction)<15:
+            direction=-360.0
+        
     elif phase == 4:
         direction = -400.0
         
