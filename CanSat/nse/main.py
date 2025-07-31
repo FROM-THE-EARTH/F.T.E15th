@@ -325,72 +325,59 @@ def flying(): #落下検知関数 :飛んでいるときはTrueを返し続け�
 
 
 def calibration():  # calibrate BMX raw data
+   def calibration():  # calibrate BMX raw data
     global calibBias
     global calibRange
-    global complete
     max = [0.0, 0.0, 0.0]
     min = [0.0, 0.0, 0.0]
+    max[0] = mag[0]
     max[1] = mag[1]
     max[2] = mag[2]
+    min[0] = mag[0]
     min[1] = mag[1]
     min[2] = mag[2]
 
-    complete = False;
+    complete = False
     while complete == False:
         before = currentMilliTime()
         after = before
         while (after - before) < CALIBRATION_MILLITIME:
-            if max[1] < mag[1]:
-                max[1] = mag[1]
-            elif min[1] > mag[1]:
-                min[1] = mag[1]
+            if max[0] < mag[0]:
+                max[0] = mag[0]
+            elif min[0] > mag[0]:
+                min[0] = mag[0]
             elif max[2] < mag[2]:
                 max[2] = mag[2]
             elif min[2] > mag[2]:
                 min[2] = mag[2]
             after = currentMilliTime()
-        if (max[1] - min[1]) > 20 and (max[2] - min[2] > 20):
+        if (max[0] - min[0]) > 20 and (max[2] - min[2] > 20):
             print("calibration(): Complete!")
-            GPIO.output(LED1, HIGH)
             complete = True
-            time.sleep(0.5)
-            calibBias[1] = (max[1] + min[1]) / 2
+            time.sleep(1)
+            calibBias[0] = (max[0] + min[0]) / 2
             calibBias[2] = (max[2] + min[2]) / 2
 
-            calibRange[1] = (max[1] - min[1]) / 2
+            calibRange[0] = (max[0] - min[0]) / 2
             calibRange[2] = (max[2] - min[2]) / 2
-            GPIO.output(LED1, LOW)
-            time.sleep(0.5)
+            time.sleep(2)
+
 
 def calcAzimuth():  # 方位角計算用関数
     global azimuth
+    azimuth = 90 - math.degrees(math.atan2(mag[2], -mag[0]))
+    azimuth %= 360.0
+    azimuth *= -1  
 
-    if mag[1] == 0.0:
-        mag[1] = 0.0000001
-    azimuth = -(180 / math.pi) * math.atan(mag[2] / mag[1])
-    if mag[1] > 0:
-        azimuth = 90 + azimuth
-    elif mag[1] < 0:
-        azimuth = -90 + azimuth
         
 def calcAngle():
     global angle
-    forEastAngle=0.0
-    EARTH_RADIUS=6378156.59
-    
-    dx=(math.pi/180)*EARTH_RADIUS*(TARGET_LNG-lng)
-    dy=(math.pi/180)*EARTH_RADIUS*(TARGET_LAT-lat)
-    
-    if dx==0 and dy ==0:
-        forEastAngle=0.0
-    else:
-        forEastAngle=(180/math.pi)*math.atan2(dy,dx)
-    angle=forEastAngle-90
-    if angle<-180:
-        angle+=360
-    if angle>180:
-        angle-=360
-    angle=-angle
+    EARTH_RADIUS = 6378136.59
+
+    dx = (math.pi / 180) * EARTH_RADIUS * (TARGET_LNG - lng)
+    dy = (math.pi / 180) * EARTH_RADIUS * (TARGET_LAT - lat)
+    angle = 90 - math.degrees(math.atan2(dy, dx))
+    angle %= 360.0
     
 
 def servoMotor(angle):
@@ -615,11 +602,12 @@ def set_direction():  # -180<direction<180  #rover move to right while direction
             theta=angle+360
         else:
             theta=angle
-        direction=theta-azimuth
+        direction=azimuth-theta
         
-        if abs(direction)<15:
+        if abs(direction)<8.0:
             direction=-360.0
-        
+        elif abs(direction)>172.0:
+            direction=-360.0
     elif phase == 4:
         direction = -400.0
         
