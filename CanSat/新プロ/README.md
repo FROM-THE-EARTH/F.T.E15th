@@ -1,4 +1,4 @@
-# CanSatの環境構築
+# 16期新プロCanSatの環境構築
 ## 1. MicroController & Sensor
 ### CanSat
 
