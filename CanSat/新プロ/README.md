@@ -1,17 +1,15 @@
-# FTE14th CanSatの環境構築
+# CanSatの環境構築
 ## 1. MicroController & Sensor
-### CanSat : NSE2024機体 SAKURA  
+### CanSat
 
 |  デバイス  |          型番           |
 |:------:|:---------------------:|
 |  マイコン  | Raspberry Pi  Zero 2W |
-| 9軸センサ  |        BMX055         |
-|  GPS   |        GEP-M10        |
-| 気圧センサ  |        BMP180         |
-| camera |     Raspi-camera      |
+| 9軸センサ  |        BNO055         |
+|  GPS   |        GT-502MGG-N        |
 
 ## 2. Install Raspberry Pi  OS
-Raspberry Pi OS 32bit Bullseye Full OSを使用。Pythonは3.xで開発を行う。
+Raspberry Pi OS Lite(64-bit)を使用。Pythonは3.xで開発を行う。
 Raspberry Pi はMicroSDにOSを入れてからRaspberry Piに電源を入れることで起動することができます。まずはこれらをインストールします。
 
   
