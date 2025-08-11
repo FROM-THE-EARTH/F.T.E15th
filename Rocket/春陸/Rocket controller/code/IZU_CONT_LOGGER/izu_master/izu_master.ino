@@ -6,7 +6,7 @@ Adafruit_BME280 bme;
 #define SEALEVELPRESSURE_HPA (1013.25)
 
 #define SAMPLENUM 20
-#define settime 11000
+#define settime 3600000
 
 int fpstate=0;
 int Fpstate;

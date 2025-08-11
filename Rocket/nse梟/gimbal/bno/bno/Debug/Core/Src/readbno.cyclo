@@ -1,0 +1,7 @@
+../Core/Src/readbno.c:68:5:_write	1
+../Core/Src/readbno.c:80:5:main	2
+../Core/Src/readbno.c:135:6:SystemClock_Config	3
+../Core/Src/readbno.c:182:13:MX_I2C1_Init	4
+../Core/Src/readbno.c:232:13:MX_USART2_UART_Init	5
+../Core/Src/readbno.c:280:13:MX_GPIO_Init	1
+../Core/Src/readbno.c:301:6:Error_Handler	1

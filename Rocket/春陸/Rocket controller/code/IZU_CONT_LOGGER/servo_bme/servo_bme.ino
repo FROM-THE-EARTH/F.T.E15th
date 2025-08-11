@@ -1,4 +1,5 @@
 #define SAMPLENUM 20
+#define settime 5000
 int AIN1=5;
 int AIN2=3;
 int count=0;
@@ -8,6 +9,9 @@ int fpStateArray[SAMPLENUM];
 int state=0;
 int alt_flag=0;
 bool status;
+int starttime,nowtime;
+int Time;
+int mode=0;
 
 float calcMedian(void *array, int n, int type) {
   if (type == 0) { // If data type is int
@@ -66,15 +70,17 @@ int isLaunched(int FlighPinState) {
 	}
   fpStateArray[0] = FlighPinState;
 	if (calcMedian(fpStateArray, SAMPLENUM, 0) == 1) { //launched
-		return 1;
-	} else {
 		return 0;
+	} else {
+		return 1;
 	}
 }
 void setup()
 { 
   pinMode(AIN1,OUTPUT);
   pinMode(AIN2,OUTPUT);
+  pinMode(14,INPUT);
+  pinMode(17,INPUT);
   digitalWrite(AIN1,LOW);
   digitalWrite(AIN2,LOW);
   Serial.begin(9600);
@@ -86,22 +92,25 @@ void setup()
 
 void loop()
 {count++;
-while(Fpstate==1){
 fpstate = fp();
 Fpstate = isLaunched(fpstate);
-Serial.println("not launched");
+switch(mode){
+case 0: 
+if (Fpstate==0){
+starttime=millis();
+mode++;
 }
-Serial.println("launched");
-alt_flag=digitalRead(13);
-Serial.println(alt_ ASflag);
-
-if(alt_flag==1){
-  Serial.println("open");
+break;
+case 1:
+nowtime=millis();
+Time=nowtime-starttime;
+alt_flag=digitalRead(14);
+if(alt_flag==1||Time>settime){
+  Serial.print("open");
   digitalWrite(AIN1,HIGH);
   digitalWrite(AIN2,LOW);
 }
-
-delay(1000);
+break;
 }
-
+}
 

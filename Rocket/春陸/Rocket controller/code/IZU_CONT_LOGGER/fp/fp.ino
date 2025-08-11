@@ -13,7 +13,7 @@ void setup() {
 void loop() {
   fpstate = fp();
   Fpstate = isLaunched(fpstate);
-  //Serial.println(Fpstate);
+  Serial.println(Fpstate);
 }
 
 float calcMedian(void *array, int n, int type) {
@@ -58,11 +58,12 @@ float calcMedian(void *array, int n, int type) {
 uint8_t fp (){
   int pinmode=0;
   int i = digitalRead(17);
-  Serial.println(i);
+  //Serial.println(i);
   if(i==1){
     pinmode=0;
   }else if(i==0){
     pinmode=1;
+    Serial.println(millis());
   }
   return (uint8_t)pinmode;
 }
