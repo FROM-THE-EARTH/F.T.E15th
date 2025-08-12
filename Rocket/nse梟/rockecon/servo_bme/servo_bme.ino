@@ -1,65 +1,120 @@
-#include<Adafruit_BME280.h>
-#include <Wire.h>
-#include <Servo.h>
-
-#define SEALEVELPRESSURE_HPA (1013.25)
-Adafruit_BME280 bme;
-
-float alt=0;
-float pres=0;
-float maxalt=0;
-float dalt=0;
+#define SAMPLENUM 20
+#define settime 5000
+int AIN1=5;
+int AIN2=3;
 int count=0;
+int fpstate=0;
+int Fpstate=1;
+int fpStateArray[SAMPLENUM];
+int state=0;
+int alt_flag=0;
+bool status;
+int starttime,nowtime;
+int Time;
+int mode=0;
 
-Servo myservo;
-const int servo=5;
+float calcMedian(void *array, int n, int type) {
+  if (type == 0) { // If data type is int
+    int *intArray = (int*) array;
+    for (int i = 0; i < n; i++) {
+      for (int j = i + 1; j < n; j++) {
+        if (intArray[i] > intArray[j]) {
+          int changer = intArray[j];
+          intArray[j] = intArray[i];
+          intArray[i] = changer;
+        }
+      }
+    }
+    if (n % 2 == 0) {
+      return (float) (intArray[n / 2] + intArray[n / 2 - 1]) / 2;
+    } else {
+      return (float) intArray[n / 2];
+    }
+  } else if (type == 1) { // If data type is float
+    float *floatArray = (float*) array;
+    for (int i = 0; i < n; i++) {
+      for (int j = i + 1; j < n; j++) {
+        if (floatArray[i] > floatArray[j]) {
+          float changer = floatArray[j];
+          floatArray[j] = floatArray[i];
+          floatArray[i] = changer;
+        }
+      }
+    }
+    if (n % 2 == 0) {
+      return (floatArray[n / 2] + floatArray[n / 2 - 1]) / 2;
+    } else {
+      return floatArray[n / 2];
+    }
+  } else {
+    // Error or unknown data type
+    return 0.0;
+  }
+}
+
+uint8_t fp (){
+  int pinmode=0;
+  int i = digitalRead(17);
+  if(i==1){
+    pinmode=0;
+  }else if(i==0){
+    pinmode=1;
+  }
+  return (uint8_t)pinmode;
+}
+
+int isLaunched(int FlighPinState) {
+  fpStateArray[0] = FlighPinState;
+	for (int i = (SAMPLENUM - 1); i > 0; i--) {
+		fpStateArray[i] = fpStateArray[i - 1];
+	}
+  fpStateArray[0] = FlighPinState;
+	if (calcMedian(fpStateArray, SAMPLENUM, 0) == 1) { //launched
+		return 0;
+	} else {
+		return 1;
+	}
+}
 void setup()
 { 
-  myservo.attach(servo,500,2400);
-  pinMode(16,OUTPUT);
-  digitalWrite(16,LOW);
+  pinMode(AIN1,OUTPUT);
+  pinMode(AIN2,OUTPUT);
+  pinMode(14,INPUT);
+  pinMode(17,INPUT);
+  digitalWrite(AIN1,LOW);
+  digitalWrite(AIN2,LOW);
   Serial.begin(9600);
-  bool status;
-  status = bme.begin(0x76);
-  if (!status) {
-    Serial.println("BME280 sensor");
-    while (10);
-  }
-    int delayTime = 1000;
-    int waittime=120*60*1000;
-    digitalWrite(16,HIGH);
-    delay(waittime);
+
+  pinMode(13,INPUT);
+  pinMode(17,INPUT);
+  
 }
 
 void loop()
-{count++;
-  float temperature = bme.readTemperature();
-  float barometric = bme.readPressure() / 100.0F;
-  alt = bme.readAltitude(SEALEVELPRESSURE_HPA);
-  float humidity = bme.readHumidity();
-if (count==1){
-  maxalt=alt;
-}else{
-  if (alt>maxalt){
-    maxalt=alt;
+{
+fpstate = fp();
+Fpstate = isLaunched(fpstate);
+switch(mode){
+case 0: 
+if (Fpstate==0){
+starttime=millis();
+mode=1;
+}
+break;
+case 1:
+if (Fpstate==1){
+mode = 0;
+break;
+} 
+nowtime=millis();
+Time=nowtime-starttime;
+alt_flag=digitalRead(14);
+if(alt_flag==1||Time>settime){
+  Serial.print("open");
+  digitalWrite(AIN1,HIGH);
+  digitalWrite(AIN2,LOW);
+}
+break;
+}
+}
 
-  }
-}
-Serial.println(maxalt-alt);
-float a = maxalt-alt;
-if (a<1){
-  digitalWrite(16,HIGH);
-} else{
-  digitalWrite(16,LOW);
-}
-if ((maxalt-alt)>10){
-  Serial.println("open");
-  myservo.write(180);
-delay(1000);
-myservo.write(105);
-delay(3000);
-myservo.write(180);
-delay(1000);
-}
-delay(1000);
-}
