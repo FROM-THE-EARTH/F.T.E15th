@@ -98,10 +98,14 @@ switch(mode){
 case 0: 
 if (Fpstate==0){
 starttime=millis();
-mode++;
+mode=1;
 }
 break;
 case 1:
+if(Fpstate==1){
+  mode=0;
+  break;
+}
 nowtime=millis();
 Time=nowtime-starttime;
 alt_flag=digitalRead(14);

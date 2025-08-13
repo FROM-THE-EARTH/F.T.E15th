@@ -1,5 +1,5 @@
 #define SAMPLENUM 20
-#define settime 5000
+#define settime 10600
 int AIN1=5;
 int AIN2=3;
 int count=0;
@@ -81,6 +81,7 @@ void setup()
   pinMode(AIN2,OUTPUT);
   pinMode(14,INPUT);
   pinMode(17,INPUT);
+  pinMode(16,OUTPUT);
   digitalWrite(AIN1,LOW);
   digitalWrite(AIN2,LOW);
   Serial.begin(9600);
@@ -113,6 +114,7 @@ if(alt_flag==1||Time>settime){
   Serial.print("open");
   digitalWrite(AIN1,HIGH);
   digitalWrite(AIN2,LOW);
+  digitalWrite(16,HIGH);
 }
 break;
 }
