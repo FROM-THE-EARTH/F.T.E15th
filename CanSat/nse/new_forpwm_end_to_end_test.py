@@ -1,312 +1,608 @@
+# 必要なライブラリをインポート
 import serial
 import time
 import math
 import threading
 import datetime
-import pigpio
+import pigpio # RPi.GPIOに代わり、pigpioを使用
 import csv
 import os
-import cv2  # [修正] cv2ライブラリをインポート
-import pynmea2
+import cv2
+
+# 添付・修正されたカスタムライブラリをインポート
 from library import BNO055
 from library import BMP180
 from library import detect_corn as dc
+import pynmea2
 from picamera2 import Picamera2
-import sys
 
-# --- 定数 ---
-# [整理] 各種設定値を整理
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log')
-TARGET_LAT = 38.266285
-TARGET_LNG = 140.855498
-CALIBRATION_MILLITIME = 20 * 1000
-DATA_SAMPLING_RATE = 0.1  # 10Hz
+# --- グローバル定数 ---
 
-# ピン定義
-AIN1, AIN2, PWMA = 8, 25, 18
-BIN1, BIN2, PWMB = 9, 11, 19
+# -- 運用設定 --
+TARGET_LAT = 38.260469  # ゴール緯度
+TARGET_LNG =  140.854215 # ゴール経度
+DATA_LOGGING_INTERVAL = 0.1     # データ記録間隔 (秒) ※現実的な値に修正
+CALIBRATION_DURATION_S = 20     # 地磁気キャリブレーションの時間 (秒)
+OBSTACLE_THRESHOLD_CM = 30.0 # ★★★ これを追加 (30cm以内に障害物があれば回避) ★★★
+
+# -- 超音波センサー Pinアサイン --
+TRIG_PIN = 23 # トリガーピンのGPIO番号
+ECHO_PIN = 24 # エコーピンのGPIO番号
+
+# -- モーター制御関連 --
+KICK_PEAK_DUTY = 150 # AINモーターの固着解消用ピークデューティ
+# PWM周波数
+PWM_FREQUENCY = 5000 # pigpioで推奨される周波数の一つ
+# デューティサイクル (0-255)
+# 12V電源から6Vモーターを駆動するため、デューティ比を約42% (106/255)に調整
+DUTY_FORWARD = 106
+DUTY_SLOW = 70
+DUTY_FAST = 128
+DUTY_SPIN = 128
+
+# -- 進行方向を定義する定数 (マジックナンバーの排除) --
+DIRECTION_STOP = 0
+DIRECTION_FORWARD = 1
+DIRECTION_SPIN_RIGHT = 2    # 右旋回（キャリブレーション用）
+DIRECTION_TURN_RIGHT = 3    # 右旋回
+DIRECTION_TURN_LEFT = 4     # 左旋回
+DIRECTION_PARA_SEPARATION = 5 # パラシュート分離用の特殊旋回
+
+# -- Pinアサイン 右モーター
+AIN1 = 8   # AIN1
+AIN2 = 25  # AIN2
+PWMA = 18  # PWMA
+# 左モータ
+BIN1 = 9    # BIN1
+BIN2 = 11   # BIN2
+PWMB = 19   # PWMB
+# ドライバ有効化ピン
 STBY = 22
-LED1, LED2 = 16, 20
-TRIG_PIN, ECHO_PIN = 15, 14
-
-# モーターデューティ
-MAX_DUTY = 106
-TURN_DUTY = 90
-ROTATE_DUTY = 90
 
 # --- グローバル変数 ---
+# pigpioインスタンス
 pi = None
-detector = None
-picam2 = None # [追加] カメラオブジェクト用
-bno = None    # [変更] 初期値はNoneに
-bmp = None    # [変更] 初期値はNoneに
 
-# センサー・GPSデータ
-acc, gyro, mag = [0.0]*3, [0.0]*3, [0.0]*3
-calibBias, calibRange = [0.0]*3, [1.0]*3
-lat, lng, alt, pres = 0.0, 0.0, 0.0, 0.0
-gps_detect = False
+# センサーデータ
+acc = [0.0, 0.0, 0.0]
+gyro = [0.0, 0.0, 0.0]
+mag = [0.0, 0.0, 0.0]
+euler = [0.0, 0.0, 0.0] # オイラー角 (Heading, Roll, Pitch)
+fall = 0.0 # 合成加速度
 
-# 計算・状態データ
-distance_to_goal = 0.0
-angle_to_goal = 0.0
-azimuth = 0.0
-direction = 360.0  # 360:停止, 0-359:角度
+# GPSデータ
+lat = 0.0
+lng = 0.0
+
+# 気圧センサーデータ
+alt = 0.0
+
+# 計算値
+distance = 0.0 # ゴールまでの距離
+target_angle = 0.0 # ゴールの方角
+azimuth = 0.0 # 機体の向き（方位角）
+direction = DIRECTION_STOP # モーター制御用の最終的な進行方向
+
+# 状態管理
 phase = 0
+upside_down_Flag = 0
+stuck_GPS_Flag = 0
 
-# [追加] 共有リソース
-log_file_name = ""
-data_lock = threading.Lock() # 共有データ保護のためのロック
+# --- ★★★ここから故障管理フラグを追加★★★ ---
+bno_ok = False
+bmp_ok = False
+camera_ok = False
+# --- ★★★追加ここまで★★★ ---
 
+# カメラ関連
+cone_direction = 0.5
+cone_probability = 1.0
 
+# ログファイル名
+nowTime = datetime.datetime.now()
+fileName = f"./log/log_{nowTime.strftime('%Y%m%d-%H%M%S')}.csv"
+
+# --- メインロジック ---
 def main():
-    global phase, direction
-    Setup()
-    phase = 1 # 開始フェーズ
+    global phase, direction, fall # directionをmainで直接制御する
+    
+    # フラグ
+    searching_Flag = False
+    camera_failed = False
+    is_phase0_start_time_set = False # phase0の開始時刻を一度だけ記録するためのフラグ
+    is_evading = False # 回避行動中かどうかのフラグ
+    
+    # 時間計測用
+    time_start_searching_cone = 0
+    time_start_phase0 = 0 # タイムアウト用の開始時刻を保持する変数
+    evasion_end_time = 0 # 回避行動を終了する時刻
+
     try:
+        Setup()
+        print("Setup complete. Starting mission.")
+        phase = 0
+
         while True:
-            # 各スレッドが自律的に動作するため、mainループは状態を監視・制御するだけになる
-            with data_lock:
-                current_phase = phase
-                dist = distance_to_goal
-                current_azimuth = azimuth
-                goal_angle = angle_to_goal
+            # --- ここからが新しい制御ロジック ---
+            if phase == 0:  # 投下検知
+                direction = DIRECTION_STOP
+                # (投下検知のロジックはそのまま)
 
-            if current_phase == 1:
-                print("Phase 1: Parachute Separation")
-                with data_lock: direction = -400.0
-                time.sleep(4)
-                with data_lock: phase = 2
-            
-            elif current_phase == 2:
-                print("Phase 2: Calibration")
-                with data_lock: direction = -400.0
-                calibration()
-                with data_lock: phase = 3
-            
-            elif current_phase == 3:
-                print(f"Phase 3: GPS Navigation (Dist: {dist:.2f} m)")
-                if dist < 4.0:
-                    print("GPS goal reached. Switching to cone search.")
-                    with data_lock: phase = 4
-                    continue
+                # このフェーズに入った最初のループで開始時刻を記録
+                if not is_phase0_start_time_set:
+                    time_start_phase0 = time.time()
+                    is_phase0_start_time_set = True
+                    print("Phase 0: Awaiting launch/fall detection...")
+
+                # --- 落下検知ロジック ---
+                # 条件1: 合成加速度(fall)が30m/s^2を超えた場合 (射出の衝撃を検知)
+                # 条件2: 300秒経過した場合 (タイムアウト)
+                if fall > 30.0 or (time.time() - time_start_phase0 > 300):
+                    print(f"Fall detected! (Trigger: {'Acceleration' if fall > 30.0 else 'Timeout'})")
+                    phase = 1 # 次のフェーズへ移行
+
+            elif phase == 1:  # パラシュート分離
+                direction = DIRECTION_PARA_SEPARATION
+                print("Phase 1: Para-separation sequence initiated.")
+                time.sleep(15)
+                phase = 2
+
+            elif phase == 2:  # 地磁気センサーキャリブレーション
+                direction = DIRECTION_SPIN_RIGHT
+                print("Phase 2: Magnetometer calibration start.")
+                calibration() # calibration関数内でのdirection設定は不要にする
+                direction = DIRECTION_STOP
+                print("Calibration complete.")
+                phase = 3
+
+            elif phase == 3: # GPS誘導
+                # BNO055が故障している場合、方位が分からないため直進しかできない
+                if not bno_ok:
+                    print("Phase 3: GPS nav (IMU FAILED - proceeding straight).")
+                    direction = DIRECTION_FORWARD
+                else:
+                    # (元のGPS誘導ロジックはここ)
+                    print(f"Phase 3: GPS nav. Dist: {distance:.2f}m, Target: {target_angle:.1f}, Azimuth: {azimuth:.1f}, Obstacle: {obstacle_distance:.1f}cm")
+                    # (障害物回避ロジックなどもこのelseブロックの中に含める)
+                    angle_diff = target_angle - azimuth
+                    if angle_diff > 180: angle_diff -= 360
+                    if angle_diff < -180: angle_diff += 360
+
+                    if abs(angle_diff) < 15:
+                        direction = DIRECTION_FORWARD
+                    elif angle_diff > 0:
+                        direction = DIRECTION_TURN_RIGHT
+                    else:
+                        direction = DIRECTION_TURN_LEFT
                 
-                # GPS誘導ロジック
-                diff_angle = (goal_angle - current_azimuth + 180) % 360 - 180
-                new_direction = diff_angle if abs(diff_angle) >= 10.0 else 0.0
-                with data_lock: direction = new_direction
+                # --- フェーズ遷移判定 ---
+                # カメラが正常で、距離が5m未満になったらカメラフェーズへ
+                if distance < 5.0 and camera_ok:
+                    phase = 4
+                # カメラが故障している場合、1m未満になったらゴールとみなす
+                elif distance < 1.0 and not camera_ok:
+                    print("Camera failed, proceeding to goal based on GPS distance.")
+                    phase = 6
 
-            elif current_phase == 4:
-                # このフェーズのロジックはvision_threadに移行した
-                # vision_threadがphaseを5に変更するのを待つ
-                print("Phase 4: Cone Search & Track (vision_thread is active)")
-                time.sleep(1) # 待機中の負荷を下げる
+            elif phase == 4: # カメラ：コーン探索
+                # このフェーズに来る時点でcamera_okはTrueのはずだが、念のため
+                if not camera_ok:
+                    print("Camera is not available. Cannot search for cone. Proceeding to goal.")
+                    phase = 6
+                    continue # ループの最初に戻る
+                
+                direction = DIRECTION_SPIN_RIGHT
+
+            elif phase == 5: # カメラ：コーン追尾
+                print(f"Phase 5: Tracking cone. Cone direction: {cone_direction:.2f}")
+                cone_detect()
+
+                if detector.is_reached:
+                    print("Goal reached!")
+                    phase = 6
+                elif not detector.is_detected:
+                    print("Cone lost. Returning to search phase.")
+                    phase = 4
+                else:
+                    # コーン追尾のロジックをここに記述
+                    if cone_direction > 0.6:
+                        direction = DIRECTION_TURN_RIGHT
+                    elif cone_direction < 0.4:
+                        direction = DIRECTION_TURN_LEFT
+                    else:
+                        direction = DIRECTION_FORWARD
+
+            elif phase == 6: # ゴール
+                direction = DIRECTION_STOP
+                print("Phase 6: Mission accomplished. Goal!")
+                while True: time.sleep(100)
             
-            elif current_phase == 5:
-                print("Phase 5: Goal! Mission accomplished.")
-                with data_lock: direction = 360.0
-                # ゴール後はループを抜けて終了
-                break
-
             time.sleep(0.1)
+
+    except KeyboardInterrupt:
+        print("\nMission aborted by user.")
+    except Exception as e:
+        print(f"\nAn unexpected error occurred: {e}")
     finally:
-        print("Stopping motors and releasing resources.")
-        if pi and pi.connected:
+        # 終了処理
+        if pi:
+            # PWMを停止
+            pi.write(AIN1, 0)
+            pi.write(AIN2, 0)
+            pi.write(BIN1, 0)
+            pi.write(BIN2, 0)
+            pi.set_PWM_dutycycle(PWMA, 0)
+            pi.set_PWM_dutycycle(PWMB, 0)
+            # ドライバを無効化
             pi.write(STBY, 0)
             pi.stop()
-        if picam2:
-            picam2.stop()
-        print("All resources released.")
+            print("pigpio stopped.")
 
+# --- 初期化 ---
 def Setup():
-    global pi, bno, bmp, detector, picam2, log_file_name
+    global pi, bno, bmp, detector, picam2
+    global bno_ok, bmp_ok, camera_ok # 故障フラグをグローバル宣言
     
-    # ログディレクトリ作成
-    os.makedirs(LOG_DIR, exist_ok=True)
-
-    # pigpio初期化
+    # pigpioの初期化
     pi = pigpio.pi()
-    if not pi.connected: sys.exit("pigpio connection failed.")
-
-    # カメラ初期化
-    print("Camera setup starting...")
-    picam2 = Picamera2()
-    config = picam2.create_preview_configuration(main={"size": (640, 480)})
-    picam2.configure(config)
-    picam2.start()
-    time.sleep(2.0)
-    print("Camera setup OK.")
-
-    # センサー初期化 (piオブジェクト生成後に行う)
-    print("BNO055 setup starting...")
-    bno = BNO055.BNO055(pi)
-    if not bno.setUp(): sys.exit("BNO055 setup failed.")
+    if not pi.connected:
+        raise RuntimeError("Could not connect to pigpio daemon.")
     
-    print("BMP180 setup starting...")
-    bmp = BMP180.BMP180(pi)
-    if not bmp.setUp(): sys.exit("BMP180 setup failed.")
-    print("Sensors setup OK.")
-    
-    # モーターピン設定
-    for pin in [AIN1, AIN2, PWMA, BIN1, BIN2, PWMB, STBY, LED1, LED2, TRIG_PIN]:
+    # モーターピンを出力に設定
+    motor_pins = [AIN1, AIN2, PWMA, BIN1, BIN2, PWMB, STBY]
+    for pin in motor_pins:
         pi.set_mode(pin, pigpio.OUTPUT)
-    pi.set_mode(ECHO_PIN, pigpio.INPUT)
-    pi.set_PWM_frequency(PWMA, 5000)
+
+    # PWM周波数を設定
+    pi.set_PWM_frequency(PWMA, 5000) # 動いたコードに合わせる
     pi.set_PWM_frequency(PWMB, 5000)
+
+    # ドライバを有効化
     pi.write(STBY, 1)
 
-    # 画像認識器の初期化
-    roi_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'library', 'roi_red_cone.png')
-    roi_img = cv2.imread(roi_path)
-    if roi_img is None: sys.exit(f"Error: Could not load ROI image at {roi_path}")
-    detector = dc.detector()
-    detector.set_roi_img(roi_img)
+    # --- BNO055 (IMU) の初期化 ---
+    try:
+        bno = BNO055.BNO055()
+        if not bno.setUp():
+            raise RuntimeError("BNO055 setup method failed.")
+        bno_ok = True
+        print("BNO055 initialized successfully.")
+    except Exception as e:
+        print(f"!!! CRITICAL WARNING: BNO055 (IMU) initialization failed: {e}")
+        print("    -> Navigation will be disabled.")
 
-    # ログファイル準備 (ファイル名をグローバル変数に保存)
-    log_file_name = os.path.join(LOG_DIR, 'testlog_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S') + '.csv')
-    with open(log_file_name, 'w', newline="") as f: # 'a'から'w'に変更し、初回書き込み
-        csv.writer(f).writerow(['MilliTime','Phase','AccX','AccY','AccZ','GyroX','GyroY','GyroZ','MagX','MagY','MagZ','LAT','LNG','ALT','Distance','Azimuth','Angle','Direction'])
+    # --- BMP180 (気圧計) の初期化 ---
+    try:
+        bmp = BMP180.BMP180()
+        if not bmp.setUp():
+            raise RuntimeError("BMP180 setup method failed.")
+        bmp_ok = True
+        print("BMP180 initialized successfully.")
+    except Exception as e:
+        print(f"!!! WARNING: BMP180 (Altimeter) initialization failed: {e}")
+        print("    -> Altitude data will be unavailable.")
+    
+    try:
+        picam2 = Picamera2()
+        config = picam2.create_preview_configuration(main={"size": (640, 480)})
+        picam2.configure(config)
+        picam2.start()
+        time.sleep(2)
 
-    # 全てのスレッドを開始
-    print("Starting threads...")
+        detector = dc.detector(picam2)
+        roi_img = cv2.imread("./library/roi_red_cone.png")
+        if roi_img is None:
+            raise FileNotFoundError("ROI image './library/roi_red_cone.png' not found.")
+        detector.set_roi_img(roi_img)
+        camera_ok = True
+        print("Camera and Cone Detector initialized successfully.")
+    except Exception as e:
+        print(f"!!! CRITICAL WARNING: Camera initialization failed: {e}")
+        print("    -> Cone detection and tracking will be disabled.")
+
+    # ログファイルのヘッダー書き込み
+    os.makedirs("./log", exist_ok=True)
+    with open(fileName, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "Time", "Phase", "AccX", "AccY", "AccZ", "GyroX", "GyroY", "GyroZ", 
+            "MagX", "MagY", "MagZ", "EulerH", "EulerR", "EulerP",
+            "Lat", "Lng", "Alt", "Distance", "TargetAngle", "Azimuth", 
+            "Direction", "Fall", "ConeDirection", "ConeProbability"
+        ])
+    print(f"Log file created: {fileName}")
+
+    # 各種スレッドの開始 (スレッド自体はエラーに関わらず開始する)
     threading.Thread(target=moveMotor_thread, daemon=True).start()
-    threading.Thread(target=data_thread, daemon=True).start()
+    threading.Thread(target=dataProcessing_thread, daemon=True).start()
     threading.Thread(target=gps_thread, daemon=True).start()
-    threading.Thread(target=vision_thread, daemon=True).start() # vision_threadを開始
+    threading.Thread(target=ultrasonic_thread, daemon=True).start()
+    print("All threads started.")
 
-    pi.write(LED2, 1)
-    print("Setup OK")
+# --- データ処理・計算関連 ---
+def dataProcessing_thread():
+    """センサーデータ取得、計算、ロギングを定期的に行う"""
+    while True:
+        # データ取得
+        getBnoData()
+        getBmpData()
+        
+        # 計算
+        calc_target_angle()
+        calc_azimuth()
+        calc_distance()
+        
+        # ログ書き込み
+        with open(fileName, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                datetime.datetime.now().strftime('%H:%M:%S.%f'), phase,
+                acc[0], acc[1], acc[2], gyro[0], gyro[1], gyro[2],
+                mag[0], mag[1], mag[2], euler[0], euler[1], euler[2],
+                lat, lng, alt, distance, target_angle, azimuth,
+                direction, fall, cone_direction, cone_probability
+            ])
+        
+        time.sleep(DATA_LOGGING_INTERVAL)
 
-# [整理] データ取得・計算関数群
-def get_all_data():
-    global acc, gyro, mag, alt, pres, distance_to_goal, angle_to_goal, azimuth
-    acc, gyro, mag = bno.getAcc(), bno.getGyro(), bno.getMag()
-    for i in range(3):
-        mag[i] = (mag[i] - calibBias[i]) / calibRange[i] if calibRange[i] != 0 else 0
-    alt, pres = bmp.getAltitude() + 60, bmp.getPressure()
-    if gps_detect:
-        # ゴールまでの距離計算
-        EARTH_RADIUS = 6378136.59
-        dx = (math.pi / 180) * EARTH_RADIUS * (TARGET_LNG - lng) * math.cos(math.radians((TARGET_LAT + lat) / 2))
-        dy = (math.pi / 180) * EARTH_RADIUS * (TARGET_LAT - lat)
-        distance_to_goal = math.sqrt(dx**2 + dy**2)
-        # ゴールまでの方位角計算
-        y = math.sin(math.radians(TARGET_LNG - lng)) * math.cos(math.radians(TARGET_LAT))
-        x = math.cos(math.radians(lat)) * math.sin(math.radians(TARGET_LAT)) - math.sin(math.radians(lat)) * math.cos(math.radians(TARGET_LAT)) * math.cos(math.radians(TARGET_LNG - lng))
-        angle_to_goal = (math.degrees(math.atan2(y, x)) + 360) % 360
-    # 機体の向き（磁北基準）
-    azimuth = (math.degrees(math.atan2(mag[1], mag[0] if mag[0]!=0 else 0.00001)) + 360) % 360
+def getBnoData():
+    global acc, gyro, mag, euler, fall
+    acc = bno.getAcc()
+    gyro = bno.getGyro()
+    mag = bno.getMag()
+    euler = bno.getEuler() # ★オイラー角を取得
+    fall = math.sqrt(acc[0]**2 + acc[1]**2 + acc[2]**2)
+
+def getBmpData():
+    global alt
+    alt = bmp.getAltitude() # 修正後のライブラリに合わせてgetAltitude()を使用
+    # 必要に応じて高度の補正値を加える
+    # alt += 60 
+
+def calc_target_angle():
+    global target_angle
+    if lat == 0.0 or lng == 0.0:
+        target_angle = 0.0
+        return
+        
+    y = math.sin(math.radians(TARGET_LNG - lng)) * math.cos(math.radians(TARGET_LAT))
+    x = math.cos(math.radians(lat)) * math.sin(math.radians(TARGET_LAT)) - \
+        math.sin(math.radians(lat)) * math.cos(math.radians(TARGET_LAT)) * math.cos(math.radians(TARGET_LNG - lng))
+    
+    angle_rad = math.atan2(y, x)
+    target_angle = (math.degrees(angle_rad) + 360) % 360 # 0-360度の範囲に正規化
+
+def calc_azimuth():
+    global azimuth
+    # BNO055のオイラー角(Heading)を機体の方位角として使用（チルト補正済み）
+    azimuth = euler[0]
+
+def calc_distance():
+    global distance
+    if lat == 0.0 or lng == 0.0:
+        distance = 9999
+        return
+        
+    d_lat = math.radians(TARGET_LAT - lat)
+    d_lon = math.radians(TARGET_LNG - lng)
+    a = math.sin(d_lat/2)**2 + math.cos(math.radians(lat)) * math.cos(math.radians(TARGET_LAT)) * math.sin(d_lon/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    distance = 6371 * 1000 * c # 単位: メートル
 
 def calibration():
-    # (内容は変更なし)
-    global calibBias, calibRange, mag
-    max_val, min_val = [0.0] * 3, [0.0] * 3
-    print("Calibration starting...")
-    start_time = round(time.time() * 1000)
-    while (round(time.time() * 1000) - start_time) < CALIBRATION_MILLITIME:
-        get_all_data()
-        for i in range(3):
-            if mag[i] > max_val[i]: max_val[i] = mag[i]
-            if mag[i] < min_val[i]: min_val[i] = mag[i]
-        time.sleep(0.01)
-    for i in range(3):
-        calibBias[i] = (max_val[i] + min_val[i]) / 2
-        calibRange[i] = (max_val[i] - min_val[i]) / 2
-        if calibRange[i] == 0: calibRange[i] = 1.0
-    print("Calibration complete!")
+    print(f"Rotate the CanSat for {CALIBRATION_DURATION_S} seconds to calibrate the magnetometer.")
+    
+    # BNO055の内部キャリブレーションステータスを監視
+    start_time = time.time()
+    while time.time() - start_time < CALIBRATION_DURATION_S:
+        status = bno.getCalibrationStatus()
+        print(f"  Calibration status (Sys, Gyro, Accel, Mag): {status}")
+        # 全てが3になるのが理想だが、地磁気(mag)が1以上になればある程度信頼できる
+        if status[3] >= 1:
+            print("Magnetometer has been partially calibrated.")
+        time.sleep(1)
+    
+    # BNO055がNDOFモードの場合、センサーフュージョンが自動で補正を続けるため、
+    # ここでの手動キャリブレーションは必須ではないが、初期精度向上のために行う。
 
-# [整理] スレッド関数群
+# --- ハードウェア制御 ---
+def cone_detect():
+    global cone_direction, cone_probability
+    detector.detect_cone()
+    cone_direction = detector.cone_direction if detector.cone_direction is not None else 0.5
+    cone_probability = detector.probability if detector.probability is not None else 1.0
+
+# gps_thread関数をこれで置き換える
 def gps_thread():
-    global lat, lng, gps_detect
-    s = serial.Serial('/dev/serial0', 115200, timeout=1)
+    global lat, lng
+    try:
+        s = serial.Serial("/dev/serial0", 115200, timeout=1)
+        while True:
+            try:
+                # 1行ずつデータを読み込む
+                sentence = s.readline().decode("utf-8", errors='ignore')
+                
+                # データがあれば解析を試みる
+                if sentence.startswith('$'):
+                    msg = pynmea2.parse(sentence)
+                    
+                    # GGAまたはRMCメッセージに緯度経度情報があれば更新する
+                    if hasattr(msg, 'latitude') and hasattr(msg, 'longitude'):
+                        # is_validでデータの品質も確認できる
+                        if hasattr(msg, 'is_valid') and msg.is_valid:
+                            lat = msg.latitude
+                            lng = msg.longitude
+                            # print(f"GPS Updated: Lat={lat}, Lng={lng}") # デバッグ用
+                        
+            except pynmea2.ParseError as e:
+                # 解析エラーは無視して次の行へ
+                # print(f"Parse error: {e}")
+                pass
+
+    except serial.SerialException as e:
+        print(f"GPS Error: {e}")
+        lat, lng = 0.0, 0.0 # エラー時は0に
+
+def ultrasonic_thread():
+    """超音波センサーで障害物までの距離を継続的に測定する"""
+    global obstacle_distance
+    
+    pi.set_mode(TRIG_PIN, pigpio.OUTPUT)
+    pi.set_mode(ECHO_PIN, pigpio.INPUT)
+    pi.write(TRIG_PIN, 0)
+    time.sleep(0.1) # センサーの安定待ち
+
     while True:
         try:
-            line = s.readline().decode('utf-8', errors='ignore')
-            if line.startswith('$GPGGA'):
-                msg = pynmea2.parse(line)
-                with data_lock: # ロックして共有変数を更新
-                    if msg.latitude != 0.0:
-                        lat, lng, gps_detect = msg.latitude, msg.longitude, True
-                    else: gps_detect = False
+            # トリガーパルスを送信
+            pi.write(TRIG_PIN, 1)
+            time.sleep(0.00001)
+            pi.write(TRIG_PIN, 0)
+
+            # エコー信号の開始を待つ
+            start_time = time.time()
+            timeout_start = start_time
+            while pi.read(ECHO_PIN) == 0:
+                start_time = time.time()
+                if start_time - timeout_start > 0.02: # タイムアウト
+                    break
+            
+            if pi.read(ECHO_PIN) == 0: # タイムアウトした場合
+                obstacle_distance = 999
+                time.sleep(0.1)
+                continue
+
+            # エコー信号の終了を待つ
+            end_time = time.time()
+            timeout_start = end_time
+            while pi.read(ECHO_PIN) == 1:
+                end_time = time.time()
+                if end_time - timeout_start > 0.02: # タイムアウト
+                    break
+            
+            # 距離を計算 (音速 343m/s)
+            duration = end_time - start_time
+            distance = (duration * 34300) / 2
+            
+            if distance < 400: # センサーの最大測定距離を超える値は除外
+                obstacle_distance = distance
             else:
-                with data_lock: gps_detect = False
+                obstacle_distance = 999
+
         except Exception as e:
-            with data_lock: gps_detect = False
-            # print(f"GPS Error: {e}") # デバッグ用にエラー表示を入れると良い
-        time.sleep(0.1)
+            # print(f"Ultrasonic sensor error: {e}")
+            obstacle_distance = 999
+        
+        time.sleep(0.1) # 100msごとに測定
 
-def data_thread():
-    # log_file_name はグローバル変数を使用
-    while True:
-        # ロックして共有変数を一貫した状態で取得・計算・保存
-        with data_lock:
-            get_all_data()
-            with open(log_file_name, 'a', newline="") as f:
-                csv.writer(f).writerow([round(time.time()*1000), round(phase, 1), acc[0], acc[1], acc[2], gyro[0], gyro[1], gyro[2], mag[0], mag[1], mag[2], lat, lng, alt, distance_to_goal, azimuth, angle_to_goal, direction])
-        time.sleep(DATA_SAMPLING_RATE)
+# 【改訂版】moveMotor_thread関数
+def moveMotor_thread():
+    """
+    ソフトスタート/ストップを実装。
+    AIN(右)モーターの始動不良対策として、始動時に一時的に
+    KICK_PEAK_DUTYまでデューティ比を上げてから目標値に戻すロジックを搭載。
+    """
+    global direction
 
-def vision_thread():
-    global phase, direction
+    # 各モーターの現在のデューティ比
+    current_duty_A = 0
+    current_duty_B = 0
+
+    # AIN(右)モーターの状態管理用変数
+    # 'IDLE': 停止中, 'KICK_UP': ピークへ上昇中, 'KICK_DOWN': 目標値へ下降中, 'NORMAL': 通常運転
+    motor_A_state = 'IDLE'
+
+    # 加減速のステップ値
+    STEP = 2 # 少し加速を速めるためステップを2に変更（必要に応じて調整）
+
     while True:
-        # 現在のフェーズが4 (コーン探索) でなければ何もしない
-        with data_lock:
-            current_phase = phase
-        if current_phase != 4:
-            time.sleep(0.2)
+        if not pi or not pi.connected:
+            time.sleep(0.1)
             continue
 
-        # 画像を取得してコーンを検出
-        frame = picam2.capture_array()
-        # detectorにフレームを渡す方法はライブラリの仕様に合わせてください
-        # ここではdetectorオブジェクトが内部でフレームを保持すると仮定
-        detector.frame = frame 
-        detector.detect_cone()
+        # --- 1. 目標デューティ比と回転方向を決定 ---
+        target_duty_A = 0
+        target_duty_B = 0
+        target_A1, target_A2 = 0, 0
+        target_B1, target_B2 = 0, 0
 
-        # 検出結果に基づき、次の行動を決定
-        new_direction = -400.0 # デフォルトは探索回転
-        next_phase = 4 # デフォルトはフェーズ維持
+        # (directionに応じた目標値設定ロジックは前回と同じ)
+        if direction == DIRECTION_STOP:
+            pass
+        elif direction == DIRECTION_FORWARD:
+            target_A1, target_A2 = 1, 0
+            target_B1, target_B2 = 0, 1
+            target_duty_A = DUTY_FORWARD
+            target_duty_B = DUTY_FORWARD
+        elif direction == DIRECTION_SPIN_RIGHT:
+            target_A1, target_A2 = 1, 0
+            target_B1, target_B2 = 0, 1
+            target_duty_A = DUTY_SLOW
+            target_duty_B = DUTY_SPIN
+        elif direction == DIRECTION_TURN_RIGHT:
+            target_A1, target_A2 = 1, 0
+            target_B1, target_B2 = 0, 1
+            target_duty_A = DUTY_SLOW
+            target_duty_B = DUTY_FORWARD
+        elif direction == DIRECTION_TURN_LEFT:
+            target_A1, target_A2 = 1, 0
+            target_B1, target_B2 = 0, 1
+            target_duty_A = DUTY_FORWARD
+            target_duty_B = DUTY_SLOW
+        elif direction == DIRECTION_PARA_SEPARATION:
+            target_A1, target_A2 = 1, 0
+            target_B1, target_B2 = 0, 1
+            target_duty_A = DUTY_SLOW
+            target_duty_B = DUTY_SPIN
 
-        if detector.is_reached:
-            print("Cone Reached! Goal!")
-            new_direction = 360.0 # 停止
-            next_phase = 5
-        elif detector.is_detected:
-            # コーン中心からのズレで方向決定
-            if detector.cone_direction > 0.55: new_direction = 45  # 右へ
-            elif detector.cone_direction < 0.45: new_direction = -45 # 左へ
-            else: new_direction = 0.0 # 前進
-        
-        # 共有変数をロックして更新
-        with data_lock:
-            direction = new_direction
-            phase = next_phase
-        
-        time.sleep(0.1)
+        # --- 2. AIN(右)モーターのデューティ比を状態に応じて制御 ---
 
-def moveMotor_thread():
-    while True:
-        # ロックしてdirection変数を安全に読み取る
-        with data_lock:
-            current_direction = direction
-        
-        # 読み取った値に基づいてモーターを制御
-        if current_direction == 360.0:  # 停止
-            pi.write(AIN1, 0); pi.write(AIN2, 0); pi.write(BIN1, 0); pi.write(BIN2, 0)
-            pi.set_PWM_dutycycle(PWMA, 0); pi.set_PWM_dutycycle(PWMB, 0)
-        elif current_direction == 0.0:  # 前進
-            pi.write(AIN1, 0); pi.write(AIN2, 1); pi.write(BIN1, 1); pi.write(BIN2, 0)
-            pi.set_PWM_dutycycle(PWMA, MAX_DUTY); pi.set_PWM_dutycycle(PWMB, MAX_DUTY)
-        elif current_direction == -400.0:  # その場右回転
-            pi.write(AIN1, 0); pi.write(AIN2, 1); pi.write(BIN1, 0); pi.write(BIN2, 1)
-            pi.set_PWM_dutycycle(PWMA, ROTATE_DUTY); pi.set_PWM_dutycycle(PWMB, ROTATE_DUTY)
-        elif current_direction > 0:  # 右へカーブ
-            pi.write(AIN1, 0); pi.write(AIN2, 1); pi.write(BIN1, 1); pi.write(BIN2, 0)
-            pi.set_PWM_dutycycle(PWMA, MAX_DUTY); pi.set_PWM_dutycycle(PWMB, TURN_DUTY)
-        elif current_direction < 0:  # 左へカーブ
-            pi.write(AIN1, 0); pi.write(AIN2, 1); pi.write(BIN1, 1); pi.write(BIN2, 0)
-            pi.set_PWM_dutycycle(PWMA, TURN_DUTY); pi.set_PWM_dutycycle(PWMB, MAX_DUTY)
-        
-        time.sleep(0.02)
+        # 状態遷移の決定
+        if motor_A_state == 'IDLE' and target_duty_A > 0:
+            motor_A_state = 'KICK_UP'
+        elif target_duty_A == 0:
+            motor_A_state = 'NORMAL' # 停止指令が来たら通常減速モードへ
 
-if __name__ == '__main__':
+        # 状態ごとのデューティ比操作
+        if motor_A_state == 'KICK_UP':
+            current_duty_A = min(current_duty_A + STEP, KICK_PEAK_DUTY)
+            if current_duty_A >= KICK_PEAK_DUTY:
+                motor_A_state = 'KICK_DOWN' # ピークに達したら下降モードへ
+        elif motor_A_state == 'KICK_DOWN':
+            current_duty_A = max(current_duty_A - STEP, target_duty_A)
+            if current_duty_A <= target_duty_A:
+                motor_A_state = 'NORMAL' # 目標値に達したら通常モードへ
+        else: # 'NORMAL' または 'IDLE'
+            if current_duty_A < target_duty_A:
+                current_duty_A = min(current_duty_A + STEP, target_duty_A)
+            elif current_duty_A > target_duty_A:
+                current_duty_A = max(current_duty_A - STEP, target_duty_A)
+
+        if current_duty_A == 0:
+            motor_A_state = 'IDLE'
+
+        # --- 3. BIN(左)モーターのデューティ比を制御（通常ソフトスタート） ---
+        if current_duty_B < target_duty_B:
+            current_duty_B = min(current_duty_B + STEP, target_duty_B)
+        elif current_duty_B > target_duty_B:
+            current_duty_B = max(current_duty_B - STEP, target_duty_B)
+
+        # --- 4. ハードウェアへ指令を送信 ---
+        # (安全な方向転換ロジックは前回と同じ)
+        if current_duty_A == 0:
+            pi.write(AIN1, 0); pi.write(AIN2, 0)
+        if current_duty_A > 0 and pi.read(AIN1) == 0 and pi.read(AIN2) == 0:
+            pi.write(AIN1, target_A1); pi.write(AIN2, target_A2)
+        pi.set_PWM_dutycycle(PWMA, current_duty_A)
+
+        if current_duty_B == 0:
+            pi.write(BIN1, 0); pi.write(BIN2, 0)
+        if current_duty_B > 0 and pi.read(BIN1) == 0 and pi.read(BIN2) == 0:
+            pi.write(BIN1, target_B1); pi.write(BIN2, target_B2)
+        pi.set_PWM_dutycycle(PWMB, current_duty_B)
+
+        time.sleep(0.01)
+
+# --- プログラム実行 ---
+if __name__ == "__main__":
     main()
