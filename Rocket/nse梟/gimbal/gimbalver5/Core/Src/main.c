@@ -141,20 +141,20 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
         if((diffangle < (onepulse_motorangle/ms)*5) && (diffangle > -(onepulse_motorangle/ms)*5) ){
         	diffangle = 0;
         }
-        int pulse = diffangle / (onepulse_motorangle / ms);
+        int step = diffangle / (onepulse_motorangle / ms);
         //printf("%f\r\n",diffangle);
 
         if (pulse < 0) {
             mdir = -1;
             HAL_GPIO_WritePin(MDDIR_GPIO_Port, MDDIR_Pin, GPIO_PIN_SET);
-            pulse = -pulse;
-        } else if (pulse > 0) {
+            step = -step;
+        } else if (step > 0) {
             mdir = 1;
             HAL_GPIO_WritePin(MDDIR_GPIO_Port, MDDIR_Pin, GPIO_PIN_RESET);
         }
 
         if (pulse > 0) {
-            mInterval = 100 / pulse;
+            mInterval = 100 / step;
             stopState = 1;
         } else {
             mInterval = 100; // ゼロ除算防止
