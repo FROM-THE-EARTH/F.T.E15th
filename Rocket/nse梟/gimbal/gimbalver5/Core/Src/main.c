@@ -144,7 +144,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
         int step = diffangle / (onepulse_motorangle / ms);
         //printf("%f\r\n",diffangle);
 
-        if (pulse < 0) {
+        if (step < 0) {
             mdir = -1;
             HAL_GPIO_WritePin(MDDIR_GPIO_Port, MDDIR_Pin, GPIO_PIN_SET);
             step = -step;
@@ -153,7 +153,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
             HAL_GPIO_WritePin(MDDIR_GPIO_Port, MDDIR_Pin, GPIO_PIN_RESET);
         }
 
-        if (pulse > 0) {
+        if (step > 0) {
             mInterval = 100 / step;
             stopState = 1;
         } else {
