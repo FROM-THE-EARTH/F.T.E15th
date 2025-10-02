@@ -21,10 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdio.h>
-#include <string.h>
-#include "BNO055.h"
-#include <stdlib.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -34,7 +31,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define onepulse_motorangle 0.9
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -45,38 +42,14 @@
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
 
-TIM_HandleTypeDef htim4;
+TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim6;
 TIM_HandleTypeDef htim7;
 
-UART_HandleTypeDef huart2;
+USART_HandleTypeDef husart1;
+USART_HandleTypeDef husart2;
 
 /* USER CODE BEGIN PV */
-float Gyr_x;
-float Gyr_y;
-float Gyr_z;
-
-float pre_z;
-float now_z;
-int bnoemergency = 0;
-
-int stepState = 0; //0:reset 1:set
-uint16_t stepInterval;
-uint16_t arr = 100;
-
-float mangle = 0;
-float tangle = 0;
-
-int mdir = 1;
-int ms = 1;
-int tim7init = 0;
-int stopState = 0;
-
-float cangle = 0;
-
-
-int state  =0;
-
 
 /* USER CODE END PV */
 
@@ -84,106 +57,17 @@ int state  =0;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
-static void MX_USART2_UART_Init(void);
-static void MX_TIM4_Init(void);
+static void MX_USART1_Init(void);
+static void MX_USART2_Init(void);
+static void MX_TIM3_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_TIM7_Init(void);
 /* USER CODE BEGIN PFP */
-
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void A4988_STEP(uint16_t interval){
-	if(stopState == 0){
-		return ;
-	}
-	if(stepState == 0){
-		if(stepInterval != interval - 1){
-			stepInterval = interval - 1;
-			__HAL_TIM_SET_AUTORELOAD(&htim7, stepInterval);
-		}
-		  HAL_GPIO_WritePin(MDSTEP_GPIO_Port,MDSTEP_Pin,GPIO_PIN_RESET);
-		  HAL_GPIO_TogglePin(MDSTEP_GPIO_Port, MDSTEP_Pin);
-		stepState = 1;
-	}else{
-		HAL_GPIO_WritePin(MDSTEP_GPIO_Port,MDSTEP_Pin,GPIO_PIN_RESET);
-		stepState = 0;
-		mangle += onepulse_motorangle*mdir/ms;
-		//printf("onepulse");
-	}
-
-}
-
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-	if(htim == &htim4){
-        BNO055_ReadGyr(&Gyr_x, &Gyr_y, &Gyr_z);
-        //printf("%f , %f , %f\r\n",Gyr_x,Gyr_y,Gyr_z); // @suppress("Float formatting support")
-        if(Gyr_z == now_z){
-        	bnoemergency++;
-        }else{
-        	bnoemergency = 0;
-        }
-        if(bnoemergency == 10){
-        	//HAL_UART_Transmit(&huart1,reset_buffer,sizeof(reset_buffer),0xFFFF);
-        	HAL_NVIC_SystemReset();
-        	bnoemergency = 0;
-        }
-        pre_z = now_z;
-        now_z = Gyr_z;
-        tangle += (now_z + Gyr_z) * 0.01 * 0.5;
-        //printf("%f\r\n",tangle);
-	}
-    if(htim == &htim6){
-        float diffangle = tangle - mangle;
-        if((diffangle < (onepulse_motorangle/ms)*5) && (diffangle > -(onepulse_motorangle/ms)*5) ){
-        	diffangle = 0;
-        }
-        int step = diffangle / (onepulse_motorangle / ms);
-        //printf("%f\r\n",diffangle);
-
-        if (step < 0) {
-            mdir = -1;
-            HAL_GPIO_WritePin(MDDIR_GPIO_Port, MDDIR_Pin, GPIO_PIN_SET);
-            step = -step;
-        } else if (step > 0) {
-            mdir = 1;
-            HAL_GPIO_WritePin(MDDIR_GPIO_Port, MDDIR_Pin, GPIO_PIN_RESET);
-        }
-
-        if (step > 0) {
-            arr = 100 / step;
-            stopState = 1;
-        } else {
-            arr = 100; // ゼロ除算防止
-            stopState = 0;
-        }
-        if(arr < 34){
-        	arr = 34;
-        }
-
-
-        if (tim7init == 0) {
-            HAL_TIM_Base_Start_IT(&htim7);
-            tim7init = 1;
-        }
-        //printf("%f,%f\r\n",tangle,mangle);
-    }
-
-    if(htim == &htim7){
-    	//printf("tim7\r\n");
-        A4988_STEP(arr);
-    }
-}
-
-
-int _write(int file, char *ptr, int len)
-{
-  HAL_UART_Transmit(&huart2,(uint8_t *)ptr,len,10);
-  return len;
-}
 
 /* USER CODE END 0 */
 
@@ -195,7 +79,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-	setbuf(stdout, NULL);
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -217,20 +101,13 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
-  MX_USART2_UART_Init();
-  MX_TIM4_Init();
+  MX_USART1_Init();
+  MX_USART2_Init();
+  MX_TIM3_Init();
   MX_TIM6_Init();
   MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
-  if(BNO055_Initialize_Fusion() == false){
-	  printf("false");
-  }else{
-	  printf("Ok");
-  }
-  HAL_TIM_Base_Start_IT(&htim6);
-  HAL_TIM_Base_Start_IT(&htim4);
-  HAL_TIM_Base_Start_IT(&htim7);
-  HAL_GPIO_WritePin(MDDIR_GPIO_Port, MDDIR_Pin, GPIO_PIN_RESET);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -240,12 +117,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-//	  BNO055_ReadGyr(&x,&y,&z);
-//	  printf("%f , %f , %f\r\n",x,y,z); // @suppress("Float formatting support")
-	  //printf("Hello\r\n");
-	  //printf("a:%f\r\n",tangle);
-	  printf("%f,%f\r\n",tangle,mangle);
-	  HAL_Delay(500);
   }
   /* USER CODE END 3 */
 }
@@ -258,10 +129,7 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-
-  /** Configure the main internal regulator output voltage
-  */
-  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -269,13 +137,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
-  RCC_OscInitStruct.PLL.PLLN = 10;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
-  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -285,12 +147,19 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART1|RCC_PERIPHCLK_I2C1;
+  PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK1;
+  PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
@@ -312,7 +181,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x10D19CE4;
+  hi2c1.Init.Timing = 0x00201D2B;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -345,47 +214,47 @@ static void MX_I2C1_Init(void)
 }
 
 /**
-  * @brief TIM4 Initialization Function
+  * @brief TIM3 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_TIM4_Init(void)
+static void MX_TIM3_Init(void)
 {
 
-  /* USER CODE BEGIN TIM4_Init 0 */
+  /* USER CODE BEGIN TIM3_Init 0 */
 
-  /* USER CODE END TIM4_Init 0 */
+  /* USER CODE END TIM3_Init 0 */
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
 
-  /* USER CODE BEGIN TIM4_Init 1 */
+  /* USER CODE BEGIN TIM3_Init 1 */
 
-  /* USER CODE END TIM4_Init 1 */
-  htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 7999;
-  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 99;
-  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 7999;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 9;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
     Error_Handler();
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
   {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN TIM4_Init 2 */
+  /* USER CODE BEGIN TIM3_Init 2 */
 
-  /* USER CODE END TIM4_Init 2 */
+  /* USER CODE END TIM3_Init 2 */
 
 }
 
@@ -407,7 +276,7 @@ static void MX_TIM6_Init(void)
 
   /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 7999;
+  htim6.Init.Prescaler = 799;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim6.Init.Period = 9;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -445,9 +314,9 @@ static void MX_TIM7_Init(void)
 
   /* USER CODE END TIM7_Init 1 */
   htim7.Instance = TIM7;
-  htim7.Init.Prescaler = 7999;
+  htim7.Init.Prescaler = 799;
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim7.Init.Period = 65535;
+  htim7.Init.Period = 9;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
   {
@@ -466,11 +335,45 @@ static void MX_TIM7_Init(void)
 }
 
 /**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  husart1.Instance = USART1;
+  husart1.Init.BaudRate = 38400;
+  husart1.Init.WordLength = USART_WORDLENGTH_8B;
+  husart1.Init.StopBits = USART_STOPBITS_1;
+  husart1.Init.Parity = USART_PARITY_NONE;
+  husart1.Init.Mode = USART_MODE_TX_RX;
+  husart1.Init.CLKPolarity = USART_POLARITY_LOW;
+  husart1.Init.CLKPhase = USART_PHASE_1EDGE;
+  husart1.Init.CLKLastBit = USART_LASTBIT_DISABLE;
+  if (HAL_USART_Init(&husart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_USART2_UART_Init(void)
+static void MX_USART2_Init(void)
 {
 
   /* USER CODE BEGIN USART2_Init 0 */
@@ -480,30 +383,16 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 1 */
 
   /* USER CODE END USART2_Init 1 */
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK)
+  husart2.Instance = USART2;
+  husart2.Init.BaudRate = 38400;
+  husart2.Init.WordLength = USART_WORDLENGTH_8B;
+  husart2.Init.StopBits = USART_STOPBITS_1;
+  husart2.Init.Parity = USART_PARITY_NONE;
+  husart2.Init.Mode = USART_MODE_TX_RX;
+  husart2.Init.CLKPolarity = USART_POLARITY_LOW;
+  husart2.Init.CLKPhase = USART_PHASE_1EDGE;
+  husart2.Init.CLKLastBit = USART_LASTBIT_DISABLE;
+  if (HAL_USART_Init(&husart2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -520,33 +409,11 @@ static void MX_USART2_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(MDDIR_GPIO_Port, MDDIR_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, MDEN_Pin|MDSTEP_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : MDDIR_Pin */
-  GPIO_InitStruct.Pin = MDDIR_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(MDDIR_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : MDEN_Pin MDSTEP_Pin */
-  GPIO_InitStruct.Pin = MDEN_Pin|MDSTEP_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
