@@ -1,3 +1,7 @@
+# ロケット
+## レガシー電装引継ぎ資料
+### PDF
+
 ## ジンバル引継ぎ資料  
 ### PDF
 https://drive.google.com/file/d/1tlNN9snPiJ_Vbj3hQbi9qIZ8SEv8Pp8z/view?usp=drive_link  
@@ -9,3 +13,6 @@ F.T.E15th/Rocket/nse梟/gimbal
 - gimbal_15th：15期代ジンバル(仮)初期設定以外何もしてません  
 - SDカードへのデータログ保存については経験がなく無知なので、伊豆梟のときに大也さんが作ったものを貼るに留めます、ご了承ください  
 https://github.com/grafen1202/SDencoder
+# CanSat
+- 16期新プロ：https://github.com/yamasuge-kazuki/newpro/blob/main/README.md
+- 能代2025 (plane2)：
