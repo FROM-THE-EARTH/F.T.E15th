@@ -15,4 +15,4 @@ F.T.E15th/Rocket/nse梟/gimbal
 https://github.com/grafen1202/SDencoder
 # CanSat
 - 16期新プロ：https://github.com/yamasuge-kazuki/newpro/blob/main/README.md
-- 能代2025 (plane2)：
+- 能代2025 (plane2)：https://github.com/yamasuge-kazuki/plane2/edit/main/README.md
