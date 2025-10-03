@@ -5,7 +5,7 @@
 ### ソースコード(2025伊豆)
 - IZU_dataloger：bme280とbno055から取得したデータをsdカードに保存する  
   (https://github.com/FROM-THE-EARTH/F.T.E15th/tree/main/Rocket/%E6%98%A5%E9%99%B8/Datalogger/code/IZU_datalogger)
-- izu_master:bmeとGPSから取得したデータをモーター回転用のarduinoにI2Cで送る  
+- izu_master:bmeとGPSから取得したデータをダウンリンク用のarduinoにI2Cで送る  
   (https://github.com/FROM-THE-EARTH/F.T.E15th/tree/main/Rocket/%E6%98%A5%E9%99%B8/Rocket%20controller/code/IZU_CONT_LOGGER/izu_master)
 - izu_slave:izu_masterから送られてきたデータをsdカード、IMにダウンリンク  
   (https://github.com/FROM-THE-EARTH/F.T.E15th/tree/main/Rocket/%E6%98%A5%E9%99%B8/Rocket%20controller/code/IZU_CONT_LOGGER/izu_slave)
