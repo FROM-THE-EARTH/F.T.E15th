@@ -1,9 +1,9 @@
-# BNO055.py (smbus2を使用するように修正)
-import smbus2 # ★★★ 変更点 ★★★
+# BNO055.py
+import smbus2
 import time
 
 class BNO055:
-    # ( ... BNO055_I2C_ADDR やレジスタ定義などは変更しない ... )
+    
     BNO055_I2C_ADDR = 0x28
     BNO055_CHIP_ID_ADDR = 0x00
     BNO055_PAGE_ID_ADDR = 0x07
@@ -29,7 +29,7 @@ class BNO055:
     EULER_SCALE = 16.0
     QUAT_SCALE_FACTOR = (1.0 / (1 << 14))
 
-    # ★★★ 変更点：__init__からpiを削除し、smbus2を初期化 ★★★
+
     def __init__(self, i2c_bus=1, i2c_address=BNO055_I2C_ADDR):
         self.bus = smbus2.SMBus(i2c_bus)
         self.addr = i2c_address
@@ -55,7 +55,6 @@ class BNO055:
             print(f"I/O error reading 16-bit word from 0x{lsb_reg:02X}: {e}")
             raise
 
-    # ( ... setUpやgetAcc, getGyro, getMag, getEulerなどのロジックは変更しない ...)
     def setUp(self, operation_mode=OPERATION_MODE_NDOF):
         try:
             chip_id = self._read_byte(self.BNO055_CHIP_ID_ADDR)
