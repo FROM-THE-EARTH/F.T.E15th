@@ -51,7 +51,7 @@ class detector():
         self.__get_camera_img()
         self.__back_projection()
         self.__binarization()
-        # ★★★ ここから診断コード ★★★
+
         # 処理の各段階の画像を保存し、何が起きているかを確認する
         try:
             print("Saving debug images to ./log/ folder...")
@@ -59,8 +59,8 @@ class detector():
             cv2.imwrite("./log/DEBUG_1_projected.png", self.projected_img) # 逆投影後の画像
             cv2.imwrite("./log/DEBUG_2_binarized.png", self.binarized_img) # 最終的な二値化マスク画像
         except Exception as e:
+            
             print(f"Debug image save error: {e}")
-        # ★★★ ここまで診断コード ★★★
         self.__find_cone_centroid()
     
     # 逆投影法を用いて, 興味領域のヒストグラムにマッチする領域を抽出
@@ -108,7 +108,7 @@ class detector():
                 self.centroids = centroids[idx]
                 self.cone_direction = self.centroids[0] / img_width
                 # 目的達成なので、これ以上他の領域を探す必要はない
-                return # ★★★ ここで関数を抜けるのがポイント ★★★
+                return
 
             # 「到達」はしていないが、ノイズではない有効な領域候補としてリストに追加
             valid_blobs.append(idx)
@@ -151,11 +151,9 @@ class detector():
                 x, y, w, h, _ = self.detected
                 cv2.rectangle(debug_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
             
-            # 現在の作業ディレクトリは new_forpwm_end_to_end_test.py がある場所なので、
-            # そこから見て log/ フォルダに画像を保存する
+
             cv2.imwrite("./log/0_input_image.png", self.input_img)      # 入力画像
             cv2.imwrite("./log/1_binarized_mask.png", self.binarized_img) # 二値化後のマスク画像
             cv2.imwrite("./log/2_debug_output.png", debug_frame)        # 検出結果を描画した画像
         except Exception as e:
             print(f"Debug image save error: {e}")
-        # ★★★★★ ここまで追加 ★★★★★
