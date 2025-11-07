@@ -1,4 +1,4 @@
-# BMP180.py (smbus2を使用する最終バージョン)
+# BMP180.py
 import smbus2
 import time
 import math
@@ -14,7 +14,7 @@ class BMP180:
     OSS_SETTINGS = {0: 0.0045, 1: 0.0075, 2: 0.0135, 3: 0.0255}
     DEFAULT_SEA_LEVEL_PA = 101325.0
 
-    # __init__をsmbus2用に修正
+
     def __init__(self, i2c_bus=1, i2c_address=BMP180_I2C_ADDR, oss=3):
         self.bus = smbus2.SMBus(i2c_bus)
         self.addr = i2c_address
@@ -22,7 +22,7 @@ class BMP180:
         self.cal_data = {}
         self._B5 = 0
 
-    # I2C通信関数をsmbus2用に修正
+
     def _read_byte(self, reg):
         return self.bus.read_byte_data(self.addr, reg)
 
