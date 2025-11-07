@@ -9,7 +9,7 @@ import csv
 import os
 import cv2
 
-# 添付・修正されたカスタムライブラリをインポート
+# カスタムライブラリをインポート
 from library import BNO055
 from library import BMP180
 from library import detect_corn as dc
@@ -21,9 +21,9 @@ from picamera2 import Picamera2
 # -- 運用設定 --
 TARGET_LAT = 38.260469  # ゴール緯度
 TARGET_LNG =  140.854215 # ゴール経度
-DATA_LOGGING_INTERVAL = 0.1     # データ記録間隔 (秒) ※現実的な値に修正
+DATA_LOGGING_INTERVAL = 0.1     # データ記録間隔 (秒)
 CALIBRATION_DURATION_S = 20     # 地磁気キャリブレーションの時間 (秒)
-OBSTACLE_THRESHOLD_CM = 30.0 # ★★★ これを追加 (30cm以内に障害物があれば回避) ★★★
+OBSTACLE_THRESHOLD_CM = 30.0 #30cm以内に障害物があれば回避
 
 # -- 超音波センサー Pinアサイン --
 TRIG_PIN = 23 # トリガーピンのGPIO番号
@@ -92,7 +92,6 @@ stuck_GPS_Flag = 0
 bno_ok = False
 bmp_ok = False
 camera_ok = False
-# --- ★★★追加ここまで★★★ ---
 
 # カメラ関連
 cone_direction = 0.5
@@ -123,10 +122,8 @@ def main():
         phase = 0
 
         while True:
-            # --- ここからが新しい制御ロジック ---
             if phase == 0:  # 投下検知
                 direction = DIRECTION_STOP
-                # (投下検知のロジックはそのまま)
 
                 # このフェーズに入った最初のループで開始時刻を記録
                 if not is_phase0_start_time_set:
@@ -161,7 +158,6 @@ def main():
                     print("Phase 3: GPS nav (IMU FAILED - proceeding straight).")
                     direction = DIRECTION_FORWARD
                 else:
-                    # (元のGPS誘導ロジックはここ)
                     print(f"Phase 3: GPS nav. Dist: {distance:.2f}m, Target: {target_angle:.1f}, Azimuth: {azimuth:.1f}, Obstacle: {obstacle_distance:.1f}cm")
                     # (障害物回避ロジックなどもこのelseブロックの中に含める)
                     angle_diff = target_angle - azimuth
@@ -254,7 +250,7 @@ def Setup():
         pi.set_mode(pin, pigpio.OUTPUT)
 
     # PWM周波数を設定
-    pi.set_PWM_frequency(PWMA, 5000) # 動いたコードに合わせる
+    pi.set_PWM_frequency(PWMA, 5000) 
     pi.set_PWM_frequency(PWMB, 5000)
 
     # ドライバを有効化
@@ -355,7 +351,7 @@ def getBnoData():
 
 def getBmpData():
     global alt
-    alt = bmp.getAltitude() # 修正後のライブラリに合わせてgetAltitude()を使用
+    alt = bmp.getAltitude() 
     # 必要に応じて高度の補正値を加える
     # alt += 60 
 
@@ -412,7 +408,7 @@ def cone_detect():
     cone_direction = detector.cone_direction if detector.cone_direction is not None else 0.5
     cone_probability = detector.probability if detector.probability is not None else 1.0
 
-# gps_thread関数をこれで置き換える
+
 def gps_thread():
     global lat, lng
     try:
@@ -495,7 +491,6 @@ def ultrasonic_thread():
         
         time.sleep(0.1) # 100msごとに測定
 
-# 【改訂版】moveMotor_thread関数
 def moveMotor_thread():
     """
     ソフトスタート/ストップを実装。
@@ -526,7 +521,7 @@ def moveMotor_thread():
         target_A1, target_A2 = 0, 0
         target_B1, target_B2 = 0, 0
 
-        # (directionに応じた目標値設定ロジックは前回と同じ)
+
         if direction == DIRECTION_STOP:
             pass
         elif direction == DIRECTION_FORWARD:
