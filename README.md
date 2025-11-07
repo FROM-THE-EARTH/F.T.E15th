@@ -29,4 +29,4 @@ https://github.com/grafen1202/SDencoder
 # CanSat
 - 16期新プロ：https://github.com/yamasuge-kazuki/newpro/tree/main
 - 能代2025 (plane2):https://github.com/yamasuge-kazuki/plane2
-- NSE2025（Re:Star-t）:https://github.com/FROM-THE-EARTH/F.T.E15th/tree/main/CanSat/nse/Re%3BStar-t
+- NSE2025（Re:Star-t）:https://github.com/YutakaOkutani/Re-Start https://github.com/FROM-THE-EARTH/F.T.E15th/tree/main/CanSat/nse/Re%3BStar-t
