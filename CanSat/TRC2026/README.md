@@ -13,12 +13,11 @@ Raspberry Pi Zero 2 W を使用した TRC2026に向けた CanSat 制御システ
 ### ハードウェア
 
 * Raspberry Pi Zero 2 W
-* microSDカード（16GB、Class 10 推奨）
+* microSDカード（16GB以上あれば良い）
 * 電源（5V / 2.5A）
 * PC（Windows / macOS / Linux のいずれか）
-* 必要に応じて
-  * USB シリアルアダプタ（初期セットアップのため）
-  * OTG ケーブル
+  * USBハブ
+  * Mini HDMI ケーブル
   * 各種センサ・アクチュエータ
 
 ### ソフトウェア
@@ -30,7 +29,7 @@ Raspberry Pi Zero 2 W を使用した TRC2026に向けた CanSat 制御システ
 
 ---
 
-## 2. リポジトリのクローン
+## 2. リポジトリのクローン（https://github.com/YutakaOkutani/TRC2026）
 
 ```
 bash
