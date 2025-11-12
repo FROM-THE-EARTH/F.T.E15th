@@ -29,7 +29,7 @@ Raspberry Pi Zero 2 W を使用した TRC2026に向けた CanSat 制御システ
 
 ---
 
-## 2. リポジトリのクローン（https://github.com/YutakaOkutani/TRC2026）
+## 2. リポジトリのクローン（ https://github.com/YutakaOkutani/TRC2026 ）
 
 ```
 bash
