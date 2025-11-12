@@ -111,11 +111,9 @@ source venv/bin/activate
 
 ```bash
 sudo apt update
-pip install -r requirements.txt
 sudo apt install -y python3-smbus i2c-tools python3-pigpio pigpio python3-rpi.gpio python3-venv python3-pip git
+pip install -r requirements.txt
 ```
-
-（※ requirements.txt をリポジトリに合わせて管理）
 
 ---
 
